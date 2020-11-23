@@ -1,0 +1,30 @@
+// ignore identity for now
+WHITESPACE = _{ " " }
+identity = _{ "."{1} }
+
+identifier = { (ASCII_ALPHANUMERIC | "_")+ }
+digits = { ASCII_DIGIT+ }
+
+recurse = { ".." }
+array_index_reverse = { "[-" ~ digits+ ~ "]" }
+array_index = { "[" ~ digits+ ~ "]" }
+select = { identifier }
+key = { identifier ~ ":" }
+
+named_query = { key ~ (!("," ~ &key) ~ filter_with_op)+ }
+object_construct = { "{" ~ (named_query ~ operator?)+ ~ "}" } // filter_with_op must be a real construct to chain them
+//{foo: .bar}
+
+optional = { "?" }
+
+query = { filter_with_op+ }
+
+filter = _{ recurse | identity | select | array_index_reverse | array_index }
+filter_with_op = _{ (operator? ~ (object_construct | filter)) }
+
+pipe = { "|" }
+comma = { "," }
+
+operator = _{ pipe | comma }
+
+program = _{ SOI ~ filter_with_op+ }
