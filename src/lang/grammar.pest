@@ -5,9 +5,16 @@ identity = _{ "."{1} }
 identifier = { (ASCII_ALPHANUMERIC | "_")+ }
 digits = { ASCII_DIGIT+ }
 
+slice_from = { digits+ }
+slice_to = { digits+ }
+
 recurse = { ".." }
-array_index_reverse = { "[-" ~ digits+ ~ "]" }
-array_index = { "[" ~ digits+ ~ "]" }
+index_reverse = { "[-" ~ digits+ ~ "]" }
+index = { "[" ~ digits+ ~ "]" }
+index_multiple = { "[" ~ (digits+ ~ ","?)+ ~ "]" }
+slice = { "[" ~ slice_from? ~ ":" ~ slice_to? ~ "]" }
+iterator = { "[]" }
+
 select = { identifier }
 key = { identifier ~ ":" }
 
@@ -19,7 +26,7 @@ optional = { "?" }
 
 query = { filter_with_op+ }
 
-filter = _{ recurse | identity | select | array_index_reverse | array_index }
+filter = _{ recurse | identity | select | iterator | index_reverse | index | index_multiple | slice }
 filter_with_op = _{ (operator? ~ (object_construct | filter)) }
 
 pipe = { "|" }

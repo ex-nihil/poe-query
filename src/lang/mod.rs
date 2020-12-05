@@ -9,10 +9,12 @@ struct PluckParser;
 #[allow(non_camel_case_types)]
 pub enum Term {
     by_name(String),
-    by_index(u64),
-    by_index_reverse(u64),
+    by_index(usize),
+    by_index_reverse(usize),
+    slice(usize,usize),
     kv(String, Vec<Term>),
     object(Vec<Term>),
+    iterator,
     pipe,
     comma,
     noop,
@@ -36,6 +38,7 @@ pub fn parse(source: &str) -> Vec<Term> {
     }
     return output;
 }
+
 // TODO: this shit must be moved to navigator so it can store objects created as current value
 fn build_ast(pair: pest::iterators::Pair<Rule>, dst: &mut Vec<Term>) {
     match pair.as_rule() {
@@ -65,12 +68,14 @@ fn build_ast(pair: pest::iterators::Pair<Rule>, dst: &mut Vec<Term>) {
         Rule::select => {
             dst.push(to_term(pair));
         }
-        Rule::array_index => {
+        Rule::index => {
             dst.push(to_term(pair));
         }
-        Rule::array_index_reverse => {
+        Rule::index_reverse => {
             dst.push(to_term(pair));
         }
+        Rule::iterator => dst.push(Term::iterator),
+        Rule::slice => dst.push(to_term(pair)),
         Rule::pipe => dst.push(to_term(pair)),
         Rule::comma => dst.push(to_term(pair)),
         _ => {
@@ -85,15 +90,35 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
             let ident = pair.as_span().as_str().to_string();
             Term::by_name(ident.to_string())
         }
-        Rule::array_index => {
+        Rule::index => {
             let ident = pair.into_inner().next().unwrap().as_str();
-            let index = ident.parse::<u64>().unwrap();
+            let index = ident.parse::<usize>().unwrap();
             Term::by_index(index)
         }
-        Rule::array_index_reverse => {
+        Rule::index_reverse => {
             let ident = pair.into_inner().next().unwrap().as_str();
-            let index = ident.parse::<u64>().unwrap();
+            let index = ident.parse::<usize>().unwrap();
             Term::by_index_reverse(index)
+        }
+        Rule::slice => {
+            let mut inner = pair.into_inner();
+            let mut from = 0 as usize;
+            let mut to = usize::MAX;
+            if let Some(first) = inner.next() {
+                match first.as_rule() {
+                    Rule::slice_from => from = first.into_inner().as_str().parse::<usize>().unwrap(),
+                    Rule::slice_to => to = first.into_inner().as_str().parse::<usize>().unwrap(),
+                    _ => {}
+                }
+            }
+            if let Some(first) = inner.next() {
+                match first.as_rule() {
+                    Rule::slice_from => from = first.into_inner().as_str().parse::<usize>().unwrap(),
+                    Rule::slice_to => to = first.into_inner().as_str().parse::<usize>().unwrap(),
+                    _ => {}
+                }
+            }
+            Term::slice(from, to)
         }
         Rule::pipe => Term::pipe,
         Rule::comma => Term::comma,

@@ -16,15 +16,15 @@ pub struct DatFile {
     pub row_size: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialOrd, PartialEq)]
 pub enum DatValue {
     Str(String),
     U64(u64),
     U32(u32),
     List(Vec<DatValue>),
+    Iterator(Vec<DatValue>),
     KeyValue(String, Box<DatValue>),
-    KeyList(String, Vec<DatValue>),
-    Object(Vec<DatValue>),
+    Object(Box<DatValue>),
     Empty,
 }
 

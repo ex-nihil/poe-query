@@ -8,11 +8,12 @@ use dat::dat_navigate::DatNavigateImpl;
 use dat::dat_reader::{DatContainer, DatContainerImpl};
 
 pub mod lang;
+pub use dat::dat_file::DatValue;
 pub use lang::Term;
 
 fn main() {
     let matches = App::new("PoE DAT transformer")
-        .version("1.0")
+        .version("1.1.0")
         .author("Daniel D. <daniel.k.dimovski@gmail.com>")
         .about("Query and transform data from Path of Exile")
         .arg(
@@ -47,6 +48,9 @@ fn main() {
     let container = DatContainer::from_install("/Users/nihil/code/poe-files", "spec");
 
     let mut navigator = container.navigate();
-    let values = navigator.traverse_terms(&terms);
-    println!("{:?}", values);
+    let value = navigator.traverse_terms(&terms);
+    match value {
+        DatValue::List(items) => items.iter().for_each(|item| println!("{:?}", item)),
+        _ => println!("{:?}", value),
+    }
 }
