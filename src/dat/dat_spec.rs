@@ -43,10 +43,6 @@ impl FileSpec {
             ..spec
         };
     }
-
-    pub fn is_foreign_key(&self, field: &FieldSpec) -> bool {
-        !field.file.is_empty() && field.file != "~"
-    }
 }
 
 fn update_with_offsets(fields: Vec<FieldSpec>) -> Vec<FieldSpec> {

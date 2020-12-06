@@ -15,7 +15,6 @@ index_multiple = { "[" ~ (digits+ ~ ","?)+ ~ "]" }
 slice = { "[" ~ slice_from? ~ ":" ~ slice_to? ~ "]" }
 iterator = { "[]" }
 
-
 string = { (!"\"" ~ ANY)+ }
 number = _{ unsigned_number | signed_number }
 unsigned_number = { "(unsigned)"? ~ digits+ }

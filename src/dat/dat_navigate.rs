@@ -6,7 +6,6 @@ use super::dat_file::DatFileRead;
 use super::dat_file::{DatFile, DatValue};
 use super::dat_spec::FieldSpecImpl;
 use super::dat_spec::FileSpec;
-use super::dat_spec::FileSpecImpl;
 
 #[derive(Debug)]
 pub struct DatNavigate<'a> {
@@ -29,6 +28,8 @@ pub trait DatNavigateImpl {
     fn traverse_terms(&mut self, parsed_terms: &Vec<Term>) -> DatValue;
     fn traverse_terms_inner(&mut self, parsed_terms: &[Term]) -> DatValue;
 
+    fn enter_foreign(&mut self);
+    fn rows_from(&self, file: &str, indices: &[u64]) -> DatValue;
     fn clone_with_value(&self, name: Option<DatValue>) -> DatNavigate;
 }
 
@@ -63,77 +64,70 @@ impl DatNavigateImpl for DatNavigate<'_> {
                     DatValue::Object(Box::new(DatValue::List(kv_list)))
                 })
                 .collect();
-            if values.len() > 1 {
-                self.current_value = Some(DatValue::List(values));
-            } else {
-                self.current_value = Some(values.first().unwrap_or(&DatValue::Empty).clone());
-            }
+            self.current_value = Some(DatValue::List(values));
         } else {
-            let current = self.current_file.unwrap();
-            let spec = self.specs.get(current).unwrap();
-            let field = spec.field(name);
-            if field.is_some() && field.unwrap().is_foreign_key() {
-                let field = field.unwrap();
-                self.current_field = Some(name.to_string());
-                self.current_value = Some(self.value());
-                self.current_field = None;
+            self.enter_foreign();
 
-                let ids: Vec<u64> = match self.current_value.clone().unwrap_or(DatValue::Empty) {
-                    DatValue::List(ids) => ids,
-                    DatValue::U64(id) => vec![DatValue::U64(id)],
+            match self.current_value.clone().unwrap_or(DatValue::Empty) {
+                DatValue::Object(_) => {}
+                DatValue::Iterator(_) => {} // TODO: clean up, and provide a helpful output message "did you mean to use []?"
+                k => panic!(format!(
+                    "Can't step into a field unless it's an object or iteratable. {:?}",
+                    k
+                )),
+            };
+            self.current_field = Some(name.to_string());
+            self.current_value = Some(self.value());
+        }
+    }
+
+    fn enter_foreign(&mut self) {
+        let current_spec = self.current_file.map(|file| self.specs.get(file)).flatten();
+        let current_field = current_spec
+            .map(|spec| {
+                spec.fields.iter().find(|&field| {
+                    self.current_field.is_some()
+                        && self.current_field.clone().unwrap() == field.name
+                })
+            })
+            .flatten();
+
+        if current_field.is_some() && current_field.unwrap().is_foreign_key() {
+            self.current_field = None;
+
+            let value = self.current_value.clone().unwrap_or(DatValue::Empty);
+            let value = match value {
+                DatValue::List(items) => DatValue::Iterator(items),
+                _ => value,
+            };
+
+            let result = iterate(&value, |v| {
+                let ids: Vec<u64> = match v {
+                    DatValue::List(ids) => ids.clone(),     // TODO: yikes
+                    DatValue::Iterator(ids) => ids.clone(), // TODO: yikes
+                    DatValue::U64(id) => vec![DatValue::U64(*id)],
                     item => panic!(format!("Not a valid id for foreign key: {:?}", item)),
                 }
                 .iter()
-                .map(|v| match v {
-                    DatValue::U64(i) => *i,
+                .filter_map(|v| match v {
+                    DatValue::U64(i) => Some(*i),
+                    DatValue::List(_) => None,
                     _ => panic!(format!("value {:?}", v)),
                 })
                 .collect();
 
-                let spec = self
-                    .specs
-                    .values()
-                    .find(|&s| s.filename == field.file)
-                    .expect(format!("No spec for export: {}", name).as_str());
-                let file = self.files.get(&field.file).unwrap();
-                let values: Vec<DatValue> = ids
-                    .iter()
-                    .map(|i| {
-                        let kv_list: Vec<DatValue> = spec
-                            .fields
-                            .iter()
-                            .map(move |field| {
-                                let row_offset =
-                                    file.rows_begin + usize::try_from(*i).unwrap() * file.row_size;
-                                DatValue::KeyValue(
-                                    field.name.clone(),
-                                    Box::new(file.read(row_offset, &field)),
-                                )
-                            })
-                            .collect();
-                        DatValue::Object(Box::new(DatValue::List(kv_list)))
-                    })
-                    .collect();
-                self.current_field = None;
-                self.current_file = Some(spec.filename.as_str());
-                self.current_value = Some(DatValue::List(values));
-            } else {
-                match self.current_value.clone().unwrap_or(DatValue::Empty) {
-                    DatValue::Object(_) => {}
-                    DatValue::Iterator(_) => {} // TODO: clean up, and provide a helpful output message "did you mean to use []?"
-                    k => panic!(format!(
-                        "Can't step into a field unless it's an object or iteratable. {:?}",
-                        k
-                    )),
-                };
-                self.current_field = Some(name.to_string());
-                self.current_value = Some(self.value());
-                self.current_field = None;
-            }
+                let rows = self.rows_from(&current_field.unwrap().file, ids.as_slice());
+                Some(rows)
+            });
+
+            self.current_field = None;
+            self.current_file = Some(current_spec.unwrap().filename.as_str());
+            self.current_value = Some(result);
         }
     }
 
     fn iterate(&mut self) {
+        self.enter_foreign();
         let value = self.current_value.clone().unwrap_or(DatValue::Empty);
         let iteratable = match value {
             DatValue::List(list) => DatValue::Iterator(list),
@@ -144,7 +138,11 @@ impl DatNavigateImpl for DatNavigate<'_> {
                 };
                 DatValue::Iterator(fields)
             }
-            _ => panic!("unable to iterate, should i support this?"),
+            DatValue::Empty => DatValue::Iterator(Vec::with_capacity(0)),
+            obj => panic!(format!(
+                "unable to iterate, should i support this? {:?}",
+                obj
+            )),
         };
         self.current_value = Some(iteratable);
     }
@@ -208,11 +206,7 @@ impl DatNavigateImpl for DatNavigate<'_> {
                             })
                             .collect();
 
-                        if values.len() > 1 {
-                            DatValue::List(values)
-                        } else {
-                            values.first().unwrap_or(&DatValue::Empty).clone()
-                        }
+                        values.first().unwrap_or(&DatValue::Empty).clone()
                     }
                     DatValue::KeyValue(key, value) => {
                         if key == self.current_field.clone().unwrap() {
@@ -250,21 +244,21 @@ impl DatNavigateImpl for DatNavigate<'_> {
                                             None
                                         }
                                     }
-                                    _ => None,
+                                    asd => panic!(format!("what happened? {:?}", asd)),
                                 })
                                 .collect::<Vec<DatValue>>()
                                 .first()
                                 .unwrap_or(&DatValue::Empty)
                                 .clone()
                         }
-                        _ => panic!("Attempting to get field of non-iterable and non-object"),
+                        val => panic!(format!(
+                            "Attempting to get field of non-iterable and non-object. {:?}",
+                            val
+                        )),
                     })
                     .collect();
-                return if result.len() > 1 {
-                    DatValue::List(result)
-                } else {
-                    result.first().unwrap_or(&DatValue::Empty).clone()
-                };
+
+                return DatValue::List(result);
             }
             DatValue::U64(i) => {
                 println!("calculating value U64");
@@ -321,60 +315,36 @@ impl DatNavigateImpl for DatNavigate<'_> {
         for term in terms {
             match term {
                 Term::select(lhs, op, rhs) => {
-                    let result = match self.current_value() {
-                        DatValue::Iterator(items) => DatValue::List(
-                            items
-                                .iter()
-                                .filter_map(|item| {
-                                    let mut clone = self.clone_with_value(Some(item.clone()));
-                                    let left = clone.traverse_terms(lhs);
-                                    clone = self.clone_with_value(Some(item.clone()));
-                                    let right = clone.traverse_terms(rhs);
-                                    let selected = match op {
-                                        Compare::equals => left == right,
-                                        Compare::not_equals => left != right,
-                                        Compare::less_than => left < right,
-                                        Compare::greater_than => left > right,
-                                        _ => panic!("unknown comparator"),
-                                    };
-                                    if selected {
-                                        Some(item.clone())
-                                    } else {
-                                        None
-                                    }
-                                })
-                                .collect(),
-                        ),
-                        _ => DatValue::Empty,
-                    };
+                    let result = iterate(self.current_value.as_ref().unwrap(), |v| {
+                        let mut clone = self.clone_with_value(Some(v.clone()));
+                        let left = clone.traverse_terms(lhs);
+                        clone = self.clone_with_value(Some(v.clone()));
+                        let right = clone.traverse_terms(rhs);
+                        let selected = match op {
+                            Compare::equals => left == right,
+                            Compare::not_equals => left != right,
+                            Compare::less_than => left < right,
+                            Compare::greater_than => left > right,
+                            _ => panic!("unknown comparator"),
+                        };
+                        if selected {
+                            Some(v.clone())
+                        } else {
+                            None
+                        }
+                    });
                     self.current_value = Some(result);
                 }
                 Term::iterator => self.iterate(),
                 Term::object(obj_terms) => {
                     if let Some(value) = &self.current_value {
-                        match value {
-                            DatValue::Iterator(items) => {
-                                let result = items
-                                    .iter()
-                                    .map(|item| {
-                                        let value = Some(DatValue::Iterator(vec![item.clone()]));
-                                        let mut clone = self.clone_with_value(value);
-                                        let output = clone.traverse_terms(obj_terms);
-                                        DatValue::Object(Box::new(output))
-                                    })
-                                    .collect();
-
-                                self.current_value = Some(DatValue::List(result));
-                            }
-                            DatValue::Object(_) => {
-                                let mut clone = self.clone();
-                                let output = clone.traverse_terms(obj_terms);
-                                self.current_value = Some(DatValue::Object(Box::new(output)));
-                            }
-                            item => {
-                                panic!(format!("not implemented - object creation on: {:?}", item))
-                            }
-                        };
+                        let output = iterate(value, |v| {
+                            //let value = Some(DatValue::Iterator(vec![v.clone()]));
+                            let mut clone = self.clone_with_value(Some(v.clone()));
+                            let output = clone.traverse_terms(obj_terms);
+                            Some(DatValue::Object(Box::new(output)))
+                        });
+                        self.current_value = Some(output);
                     }
                     // TODO: support object creation without input
                 }
@@ -419,6 +389,35 @@ impl DatNavigateImpl for DatNavigate<'_> {
         }
     }
 
+    fn rows_from(&self, filepath: &str, indices: &[u64]) -> DatValue {
+        let foreign_spec = self.specs.get(filepath).unwrap();
+        let file = self.files.get(filepath).unwrap();
+
+        let values: Vec<DatValue> = indices
+            .iter()
+            .map(|i| {
+                let kv_list: Vec<DatValue> = foreign_spec
+                    .fields
+                    .iter()
+                    .map(move |field| {
+                        let row_offset =
+                            file.rows_begin + usize::try_from(*i).unwrap() * file.row_size;
+                        DatValue::KeyValue(
+                            field.name.clone(),
+                            Box::new(file.read(row_offset, &field)),
+                        )
+                    })
+                    .collect();
+                DatValue::Object(Box::new(DatValue::List(kv_list)))
+            })
+            .collect();
+
+        if values.len() > 1 {
+            DatValue::List(values)
+        } else {
+            values.first().unwrap_or(&DatValue::Empty).clone()
+        }
+    }
     // current value can be large datasets
     fn clone_with_value(&self, value: Option<DatValue>) -> DatNavigate {
         DatNavigate {
@@ -428,5 +427,18 @@ impl DatNavigateImpl for DatNavigate<'_> {
             current_file: self.current_file,
             current_value: value,
         }
+    }
+}
+
+// TODO: move this somewhere else
+fn iterate<F>(value: &DatValue, action: F) -> DatValue
+where
+    F: Fn(&DatValue) -> Option<DatValue>,
+{
+    match value {
+        DatValue::Iterator(elements) => {
+            DatValue::List(elements.iter().filter_map(|e| action(e)).collect())
+        }
+        _ => action(value).expect("non-iterable must return something"),
     }
 }

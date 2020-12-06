@@ -9,7 +9,7 @@ fields:
     type: ref|string
   -  
     file: Data/ModSellPriceTypes.dat
-    name: mod_sell_price_type
+    name: mod_sell_price_types
     rowid: 0
     type: list|u64
   -  

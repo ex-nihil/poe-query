@@ -107,7 +107,6 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
         }
         Rule::string => {
             let text = pair.as_span().as_str().to_string();
-            println!("STRING {:?}", pair);
             Term::string(text)
         }
         Rule::index => {

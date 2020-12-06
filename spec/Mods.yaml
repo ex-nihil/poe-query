@@ -38,10 +38,10 @@ fields:
     name: name
     type: ref|string
   - 
-    name: GenerationType
+    name: generation_type
     type: u32
   - 
-    name: correct_group
+    name: group
     type: ref|string
   - 
     name: stat1_min

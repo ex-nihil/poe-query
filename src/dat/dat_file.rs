@@ -48,11 +48,22 @@ impl Serialize for DatValue
                         }
                     }
                     map.end()
+                } else if let DatValue::KeyValue(k, v) = *content.clone() {
+                    let mut map = serializer.serialize_map(Some(1))?;
+                    map.serialize_entry(k.as_str(),&*v)?;
+                    map.end()
                 } else {
-                    panic!("object contained something else than a list, probably a keyvalue. fix this.");
+                    panic!(format!("object contained something else than a list, probably a keyvalue. fix this. {:?}", self).as_str());
                 }
             },
             DatValue::List(list) => {
+                let mut seq = serializer.serialize_seq(Some(list.len()))?;
+                for value in list {
+                    seq.serialize_element(value)?;
+                }
+                seq.end()
+            },
+            DatValue::Iterator(list) => {
                 let mut seq = serializer.serialize_seq(Some(list.len()))?;
                 for value in list {
                     seq.serialize_element(value)?;

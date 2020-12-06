@@ -6,7 +6,7 @@ extern crate pest_derive;
 mod dat;
 use dat::dat_navigate::DatNavigateImpl;
 use dat::dat_reader::{DatContainer, DatContainerImpl};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 pub mod lang;
 pub use dat::dat_file::DatValue;
@@ -14,7 +14,7 @@ pub use lang::Term;
 
 fn main() {
     let matches = App::new("PoE DAT transformer")
-        .version("1.1.0")
+        .version("1.0.0")
         .author("Daniel D. <daniel.k.dimovski@gmail.com>")
         .about("Query and transform data from Path of Exile")
         .arg(
@@ -57,6 +57,6 @@ fn main() {
     let serialized = serde_json::to_string_pretty(&value).unwrap();
     println!("{}", serialized);
 
-    println!("Setup took: {}ms", read_index_ms);
-    println!("Query took: {}ms", query_ms);
+    println!("setup spent: {}ms", read_index_ms);
+    println!("query spent: {}ms", query_ms);
 }
