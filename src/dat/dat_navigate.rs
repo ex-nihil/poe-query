@@ -154,10 +154,10 @@ impl DatNavigateImpl for DatNavigate<'_> {
                 self.current_value = Some(DatValue::List(
                     list[from..usize::min(to, list.len())].to_vec(),
                 ))
-            }
+            },
             DatValue::Str(str) => {
                 self.current_value = Some(DatValue::Str(str[from..to].to_string()))
-            }
+            },
             _ => panic!("attempt to index non-indexable value {:?}", value),
         }
     }
@@ -325,7 +325,6 @@ impl DatNavigateImpl for DatNavigate<'_> {
                             Compare::not_equals => left != right,
                             Compare::less_than => left < right,
                             Compare::greater_than => left > right,
-                            _ => panic!("unknown comparator"),
                         };
                         if selected {
                             Some(v.clone())
