@@ -41,13 +41,9 @@ impl DatNavigateImpl for DatNavigate<'_> {
                 .values()
                 .find(|&s| s.export == name)
                 .expect("no spec with export");
-            self.current_field = None;
-            self.current_file = Some(&spec.filename);
-            self.current_value = Some(self.value());
-
+                
             // generate initial values
-            let current = self.current_file.unwrap();
-            let file = self.files.get(current).unwrap();
+            let file = self.files.get(&spec.filename).unwrap();
             let values: Vec<DatValue> = (0..file.rows_count)
                 .map(|i| {
                     let kv_list: Vec<DatValue> = spec
@@ -64,6 +60,9 @@ impl DatNavigateImpl for DatNavigate<'_> {
                     DatValue::Object(Box::new(DatValue::List(kv_list)))
                 })
                 .collect();
+
+            self.current_field = None;
+            self.current_file = Some(&spec.filename);
             self.current_value = Some(DatValue::List(values));
         } else {
             self.enter_foreign();

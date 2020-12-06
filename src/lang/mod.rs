@@ -188,6 +188,28 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
         }
         Rule::pipe => Term::pipe,
         Rule::comma => Term::comma,
+        Rule::object_construct => {
+            let content = pair.into_inner();
+            let mut object_terms = Vec::new();
+            for pair in content {
+                match pair.as_rule() {
+                    Rule::comma => object_terms.push(to_term(pair)),
+                    _ => {
+                        let mut content = pair.into_inner();
+                        let ident = match content.next() {
+                            Some(p) => p.into_inner().as_str(),
+                            None => panic!("Introduced a new construct without updating term parser?"),
+                        };
+                        let mut kv_terms = Vec::new();
+                        while let Some(next) = content.next() {
+                            kv_terms.push(to_term(next));
+                        }
+                        object_terms.push(Term::kv(ident.to_string(), kv_terms));
+                    }
+                }
+            }
+            Term::object(object_terms)
+        },
         _ => {
             println!("UNHANDLED: {}", pair);
             Term::noop
