@@ -11,13 +11,25 @@ pub struct FileSpec {
 
 #[derive(Debug, PartialEq, Deserialize, Clone)]
 pub struct FieldSpec {
+    #[serde(default = "undefined")]
     pub name: String,
-    pub rowid: u64,
-    pub r#type: String,
+
+    #[serde(alias = "type")]
+    pub datatype: String,
+
+    #[serde(default = "empty")]
     pub file: String,
 
     #[serde(skip)]
     pub offset: u64,
+}
+
+fn undefined() -> String {
+    "undefined".to_string()
+}
+
+fn empty() -> String {
+    "".to_string()
 }
 
 impl FileSpec {
@@ -42,16 +54,16 @@ fn update_with_offsets(fields: Vec<FieldSpec>) -> Vec<FieldSpec> {
     fields
         .iter()
         .map(|field| {
-            let datatype = field.r#type.split("|").next().unwrap();
+            let datatype = field.datatype.split("|").next().unwrap();
             let size = match datatype {
                 "u64" | "list" => 8,
+                "bool" | "u8" => 1,
                 _ => 4,
             };
             let updated = FieldSpec {
                 offset,
                 name: field.name.clone(),
-                rowid: field.rowid,
-                r#type: field.r#type.clone(),
+                datatype: field.datatype.clone(),
                 file: field.file.clone(),
             };
             offset += size;

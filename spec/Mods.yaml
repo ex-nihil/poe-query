@@ -3,529 +3,190 @@ filename: Data/Mods.dat
 export: mods
 fields:
   - 
-    file: 
     name: id
-    rowid: 0
     type: ref|string
   -  
-    file:
-    name: Unknown0
-    rowid: 0
     type: u32
   - 
     file: Data/ModType.dat
-    name: ModTypeKey
+    name: mod_type
     rowid: 0
     type: u64
   - 
-    file: 
-    name: Level
-    rowid: 0
+    name: level
     type: u32
   - 
-    file: Stats.dat
-    name: StatsKey1
-    rowid: 0
+    file: Data/Stats.dat
+    name: stats1
     type: u64
   - 
-    file: Stats.dat
-    name: StatsKey2
-    rowid: 0
+    file: Data/Stats.dat
+    name: stats2
     type: u64
   - 
-    file: Stats.dat
-    name: StatsKey3
-    rowid: 0
+    file: Data/Stats.dat
+    name: stats3
     type: u64
   - 
-    file: Stats.dat
-    name: StatsKey4
-    rowid: 0
+    file: Data/Stats.dat
+    name: stats4
     type: u64
   - 
-    file: _
-    name: Domain
-    rowid: 0
+    name: domain
     type: u32
   - 
-    file: _
-    name: Name
-    rowid: 0
+    name: name
     type: ref|string
   - 
-    file: _
     name: GenerationType
-    rowid: 0
     type: u32
   - 
-    file: _
-    name: CorrectGroup
-    rowid: 0
+    name: correct_group
     type: ref|string
   - 
-    file: _
-    name: Stat1Min
-    rowid: 0
+    name: stat1_min
     type: u32
   - 
-    file: _
-    name: Stat1Max
-    rowid: 0
+    name: stat1_max
     type: u32
   - 
-    file: _
-    name: Stat2Min
-    rowid: 0
+    name: stat2_min
     type: u32
   - 
-    file: _
-    name: Stat2Max
-    rowid: 0
+    name: stat2_max
     type: u32
   - 
-    file: _
-    name: Stat3Min
-    rowid: 0
+    name: stat3_min
     type: u32
   - 
-    file: _
-    name: Stat3Max
-    rowid: 0
+    name: stat3_max
     type: u32
   - 
-    file: _
-    name: Stat4Min
-    rowid: 0
+    name: stat4_min
     type: u32
   - 
-    file: _
-    name: Stat4Max
-    rowid: 0
+    name: stat4_max
     type: u32
   - 
-    file: _
-    name: SpawnWeight_TagsKeys
-    rowid: 0
+    name: spawn_weight_tags
     type: list|u64
-
-
-# {
-#     "name": "SpawnWeight_TagsKeys",
-#     "rowid": 20,
-#     "type": "ref|list|ulong",
-#     "key": "Tags.dat",
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "SpawnWeight_Values",
-#     "rowid": 21,
-#     "type": "ref|list|uint",
-#     "key": null,
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "BuffDefinitionsKey",
-#     "rowid": 22,
-#     "type": "ulong",
-#     "key": "BuffDefinitions.dat",
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "BuffValue",
-#     "rowid": 23,
-#     "type": "int",
-#     "key": null,
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "TagsKeys",
-#     "rowid": 24,
-#     "type": "ref|list|ulong",
-#     "key": "Tags.dat",
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "GrantedEffectsPerLevelKeys",
-#     "rowid": 25,
-#     "type": "ref|list|ulong",
-#     "key": "GrantedEffectsPerLevel.dat",
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "Data1",
-#     "rowid": 26,
-#     "type": "ref|list|uint",
-#     "key": null,
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "Data2",
-#     "rowid": 27,
-#     "type": "ref|list|uint",
-#     "key": null,
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "MonsterMetadata",
-#     "rowid": 28,
-#     "type": "ref|string",
-#     "key": null,
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "Data3",
-#     "rowid": 29,
-#     "type": "ref|list|int",
-#     "key": null,
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "Data4",
-#     "rowid": 30,
-#     "type": "ref|list|int",
-#     "key": null,
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "BuffVisualsKey",
-#     "rowid": 31,
-#     "type": "ulong",
-#     "key": "BuffVisuals.dat",
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "Stat5Min",
-#     "rowid": 32,
-#     "type": "int",
-#     "key": null,
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "Stat5Max",
-#     "rowid": 33,
-#     "type": "int",
-#     "key": null,
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "StatsKey5",
-#     "rowid": 34,
-#     "type": "ulong",
-#     "key": "Stats.dat",
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "FullAreaClear_AchievementItemsKey",
-#     "rowid": 35,
-#     "type": "ref|list|ulong",
-#     "key": "AchievementItems.dat",
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "AchievementItemsKey",
-#     "rowid": 36,
-#     "type": "ulong",
-#     "key": "AchievementItems.dat",
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "GenerationWeight_TagsKeys",
-#     "rowid": 37,
-#     "type": "ref|list|ulong",
-#     "key": "Tags.dat",
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "GenerationWeight_Values",
-#     "rowid": 38,
-#     "type": "ref|list|int",
-#     "key": null,
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "Data5",
-#     "rowid": 39,
-#     "type": "ref|list|int",
-#     "key": null,
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "IsEssenceOnlyModifier",
-#     "rowid": 40,
-#     "type": "bool",
-#     "key": null,
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "Stat6Min",
-#     "rowid": 41,
-#     "type": "int",
-#     "key": null,
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "Stat6Max",
-#     "rowid": 42,
-#     "type": "int",
-#     "key": null,
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "StatsKey6",
-#     "rowid": 43,
-#     "type": "ulong",
-#     "key": "Stats.dat",
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "DelveDepth",
-#     "rowid": 44,
-#     "type": "int",
-#     "key": null,
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "Unknown67",
-#     "rowid": 45,
-#     "type": "byte",
-#     "key": null,
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "Unveil_AchievementItemsKey",
-#     "rowid": 46,
-#     "type": "ulong",
-#     "key": "AchievementItems.dat",
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# },
-# {
-#     "name": "Keys0",
-#     "rowid": 47,
-#     "type": "ref|list|ulong",
-#     "key": null,
-#     "key_id": null,
-#     "key_offset": 0,
-#     "enum": null,
-#     "unique": false,
-#     "file_path": false,
-#     "file_ext": null,
-#     "display": null,
-#     "display_type": "{0}",
-#     "description": null
-# }
+  - 
+    name: spawn_weight_values
+    type: list|u32
+  - 
+    file: Data/BuffDefinitions.dat
+    name: buff_definition
+    type: u64
+  - 
+    name: buff_value
+    type: u32
+  - 
+    file: Data/Tags.dat
+    name: tags
+    type: list|u64
+  - 
+    file: Data/GrantedEffectsPerLevel.dat
+    name: granted_effects_per_level
+    type: list|u64
+  - 
+    name: data1
+    type: list|u32
+  - 
+    name: data2
+    type: list|u32
+  - 
+    name: monster_metadata
+    type: ref|string
+  - 
+    name: data3
+    type: list|u32
+  - 
+    name: data4
+    type: list|u32
+  - 
+    file: Data/BuffVisuals.dat
+    name: buff_visuals
+    type: u64
+  - 
+    name: stat5_min
+    type: u32
+  - 
+    name: stat5_max
+    type: u32
+  - 
+    file: Data/Stats.dat
+    name: stat5
+    type: u64
+  - 
+    file: Data/AchievementItems.dat
+    name: full_clear_achivement_items
+    type: list|u64
+  - 
+    file: Data/AchievementItems.dat
+    name: achivement_items
+    type: list|u64
+  - 
+    file: Data/Tags.dat
+    name: gen_weight_tags
+    type: list|u64
+  - 
+    name: gen_weight_values
+    type: list|u32
+  - 
+    name: data5
+    type: list|u32
+  - 
+    name: essence_unique
+    type: bool
+  - 
+    name: stat6_min
+    type: i32
+  - 
+    name: stat6_max
+    type: i32
+  - 
+    file: Data/Stats.dat
+    name: stat6
+    type: u64
+  - 
+    name: max_level
+    type: u32
+  - 
+    type: u8
+  - 
+    file: Data/AchievementItems.dat
+    name: unveil_achivement_items
+    type: u64
+  - 
+    name: keys0
+    type: list|u64
+  - 
+    name: monster_on_death
+    type: ref|string
+  - 
+    type: u32
+  - 
+    type: list|u32
+  - 
+    name: keys1
+    type: list|u64
+  - 
+    name: heist_sub_stat_value1
+    type: u32
+  - 
+    name: heist_sub_stat_value2
+    type: u32
+  - 
+    file: Data/Stats.dat
+    name: heist_stats0
+    type: u64
+  - 
+    file: Data/Stats.dat
+    name: heist_stats1
+    type: u64
+  - 
+    name: heist_add_stat_value1
+    type: u32
+  - 
+    name: heist_add_stat_value2
+    type: u32

@@ -6,6 +6,7 @@ extern crate pest_derive;
 mod dat;
 use dat::dat_navigate::DatNavigateImpl;
 use dat::dat_reader::{DatContainer, DatContainerImpl};
+use std::time::{Duration, Instant};
 
 pub mod lang;
 pub use dat::dat_file::DatValue;
@@ -43,14 +44,19 @@ fn main() {
 
     let query = matches.value_of("query").unwrap();
     let terms = lang::parse(query);
-    println!("TERMS: {:?}", terms);
 
+    let mut now = Instant::now();
     let container = DatContainer::from_install("/Users/nihil/code/poe-files", "spec");
-
     let mut navigator = container.navigate();
+    let read_index_ms = now.elapsed().as_millis();
+
+    now = Instant::now();
     let value = navigator.traverse_terms(&terms);
-    match value {
-        DatValue::List(items) => items.iter().for_each(|item| println!("{:?}", item)),
-        _ => println!("{:?}", value),
-    }
+    let query_ms = now.elapsed().as_millis();
+
+    let serialized = serde_json::to_string_pretty(&value).unwrap();
+    println!("{}", serialized);
+
+    println!("Setup took: {}ms", read_index_ms);
+    println!("Query took: {}ms", query_ms);
 }

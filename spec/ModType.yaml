@@ -4,16 +4,16 @@ export: mod_type
 fields:
   - 
     file:
-    name: Name
+    name: name
     rowid: 0
     type: ref|string
   -  
-    file:
-    name: ModSellPriceTypesKeys
+    file: Data/ModSellPriceTypes.dat
+    name: mod_sell_price_type
     rowid: 0
     type: list|u64
   -  
     file: Data/Tags.dat
-    name: TagsKeys
+    name: tags
     rowid: 0
     type: list|u64

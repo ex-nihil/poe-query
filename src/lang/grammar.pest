@@ -15,19 +15,41 @@ index_multiple = { "[" ~ (digits+ ~ ","?)+ ~ "]" }
 slice = { "[" ~ slice_from? ~ ":" ~ slice_to? ~ "]" }
 iterator = { "[]" }
 
-select = { identifier }
+
+string = { (!"\"" ~ ANY)+ }
+number = _{ unsigned_number | signed_number }
+unsigned_number = { "(unsigned)"? ~ digits+ }
+signed_number = { (("(signed)" ~ minus) | ("(signed)" | minus)) ~ digits+ }
+quoted_string = _{ "\"" ~ string ~ "\"" }
+datatypes = _{ quoted_string | number }
+
+// arithmetic
+plus  = { "+" }
+minus = { "-" }
+
+// functions
+select = { "select(" ~ bool_expression ~ ")" }
+
+// comparisons
+equal = { "==" }
+not_equal = { "!=" }
+less_than = { "<" }
+greater_than = { ">" }
+compare = { equal | not_equal | less_than | greater_than }
+bool_expression = _{ filter_with_op+ ~ compare ~ filter_with_op+ }
+
+field = { identifier }
 key = { identifier ~ ":" }
 
 named_query = { key ~ (!("," ~ &key) ~ filter_with_op)+ }
-object_construct = { "{" ~ (named_query ~ operator?)+ ~ "}" } // filter_with_op must be a real construct to chain them
-//{foo: .bar}
+object_construct = { "{" ~ (named_query ~ operator?)+ ~ "}" }
 
 optional = { "?" }
 
 query = { filter_with_op+ }
 
-filter = _{ recurse | identity | select | iterator | index_reverse | index | index_multiple | slice }
-filter_with_op = _{ (operator? ~ (object_construct | filter)) }
+filter = _{ select | recurse | identity | field | iterator | index_reverse | index | index_multiple | slice }
+filter_with_op = _{ (operator? ~ (object_construct | datatypes | filter)) }
 
 pipe = { "|" }
 comma = { "," }

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
 
-use super::super::lang::Term;
+use super::super::lang::{Compare, Term};
 use super::dat_file::DatFileRead;
 use super::dat_file::{DatFile, DatValue};
 use super::dat_spec::FieldSpecImpl;
@@ -28,6 +28,8 @@ pub trait DatNavigateImpl {
     fn traverse_term(&mut self, term: &Term) -> DatValue;
     fn traverse_terms(&mut self, parsed_terms: &Vec<Term>) -> DatValue;
     fn traverse_terms_inner(&mut self, parsed_terms: &[Term]) -> DatValue;
+
+    fn clone_with_value(&self, name: Option<DatValue>) -> DatNavigate;
 }
 
 impl DatNavigateImpl for DatNavigate<'_> {
@@ -79,12 +81,10 @@ impl DatNavigateImpl for DatNavigate<'_> {
                 let ids: Vec<u64> = match self.current_value.clone().unwrap_or(DatValue::Empty) {
                     DatValue::List(ids) => ids,
                     DatValue::U64(id) => vec![DatValue::U64(id)],
-                    DatValue::U32(id) => vec![DatValue::U32(id)],
                     item => panic!(format!("Not a valid id for foreign key: {:?}", item)),
                 }
                 .iter()
                 .map(|v| match v {
-                    DatValue::U32(i) => *i as u64,
                     DatValue::U64(i) => *i,
                     _ => panic!(format!("value {:?}", v)),
                 })
@@ -263,25 +263,8 @@ impl DatNavigateImpl for DatNavigate<'_> {
                 return if result.len() > 1 {
                     DatValue::List(result)
                 } else {
-                    result.first().unwrap().clone()
+                    result.first().unwrap_or(&DatValue::Empty).clone()
                 };
-            }
-            DatValue::U32(i) => {
-                println!("calculating value U32");
-                // TODO: extract to function
-                let kv_list: Vec<DatValue> = spec
-                    .fields
-                    .iter()
-                    .map(move |field| {
-                        let row_offset = file.rows_begin + i as usize * file.row_size;
-                        DatValue::KeyValue(
-                            field.name.clone(),
-                            Box::new(file.read(row_offset, &field)),
-                        )
-                    })
-                    .collect();
-
-                return DatValue::Object(Box::new(DatValue::List(kv_list)));
             }
             DatValue::U64(i) => {
                 println!("calculating value U64");
@@ -337,6 +320,35 @@ impl DatNavigateImpl for DatNavigate<'_> {
     fn traverse_terms_inner(&mut self, terms: &[Term]) -> DatValue {
         for term in terms {
             match term {
+                Term::select(lhs, op, rhs) => {
+                    let result = match self.current_value() {
+                        DatValue::Iterator(items) => DatValue::List(
+                            items
+                                .iter()
+                                .filter_map(|item| {
+                                    let mut clone = self.clone_with_value(Some(item.clone()));
+                                    let left = clone.traverse_terms(lhs);
+                                    clone = self.clone_with_value(Some(item.clone()));
+                                    let right = clone.traverse_terms(rhs);
+                                    let selected = match op {
+                                        Compare::equals => left == right,
+                                        Compare::not_equals => left != right,
+                                        Compare::less_than => left < right,
+                                        Compare::greater_than => left > right,
+                                        _ => panic!("unknown comparator"),
+                                    };
+                                    if selected {
+                                        Some(item.clone())
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect(),
+                        ),
+                        _ => DatValue::Empty,
+                    };
+                    self.current_value = Some(result);
+                }
                 Term::iterator => self.iterate(),
                 Term::object(obj_terms) => {
                     if let Some(value) = &self.current_value {
@@ -345,11 +357,10 @@ impl DatNavigateImpl for DatNavigate<'_> {
                                 let result = items
                                     .iter()
                                     .map(|item| {
-                                        let mut clone = self.clone();
-                                        clone.current_value =
-                                            Some(DatValue::Iterator(vec![item.clone()]));
+                                        let value = Some(DatValue::Iterator(vec![item.clone()]));
+                                        let mut clone = self.clone_with_value(value);
                                         let output = clone.traverse_terms(obj_terms);
-                                        DatValue::Object(Box::new(DatValue::List(vec![output])))
+                                        DatValue::Object(Box::new(output))
                                     })
                                     .collect();
 
@@ -372,6 +383,15 @@ impl DatNavigateImpl for DatNavigate<'_> {
                     self.current_value =
                         Some(DatValue::KeyValue(key.to_string(), Box::new(result)));
                 }
+                Term::string(text) => {
+                    self.current_value = Some(DatValue::Str(text.to_string()));
+                }
+                Term::unsigned_number(value) => {
+                    self.current_value = Some(DatValue::U64(*value));
+                }
+                Term::signed_number(value) => {
+                    self.current_value = Some(DatValue::I64(*value));
+                }
                 _ => {
                     self.traverse_term(&term.clone());
                 }
@@ -385,15 +405,28 @@ impl DatNavigateImpl for DatNavigate<'_> {
         match term {
             Term::by_name(key) => {
                 self.child(key);
+                self.current_value()
             }
             Term::by_index(i) => {
                 self.index(*i);
+                self.current_value()
             }
             Term::slice(from, to) => {
                 self.slice(*from, *to);
+                self.current_value()
             }
-            _ => println!("unhandled term: {:?}", term),
+            _ => panic!(format!("unhandled term: {:?}", term)),
         }
-        self.current_value()
+    }
+
+    // current value can be large datasets
+    fn clone_with_value(&self, value: Option<DatValue>) -> DatNavigate {
+        DatNavigate {
+            files: self.files,
+            specs: self.specs,
+            current_field: self.current_field.clone(),
+            current_file: self.current_file,
+            current_value: value,
+        }
     }
 }
