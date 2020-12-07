@@ -9,11 +9,10 @@ slice_from = { digits+ }
 slice_to = { digits+ }
 
 recurse = { ".." }
-index_reverse = { "[-" ~ digits+ ~ "]" }
-index = { "[" ~ digits+ ~ "]" }
-index_multiple = { "[" ~ (digits+ ~ ","?)+ ~ "]" }
-slice = { "[" ~ slice_from? ~ ":" ~ slice_to? ~ "]" }
-iterator = { "[]" }
+index_reverse = { &ANY ~ "[-" ~ digits+ ~ "]" }
+index = { &ANY ~ "[" ~ digits+ ~ "]" }
+slice = { &ANY ~ "[" ~ slice_from? ~ ":" ~ slice_to? ~ "]" }
+iterator = { &ANY ~ "[]" }
 
 string = { (!"\"" ~ ANY)+ }
 number = _{ unsigned_number | signed_number }
@@ -49,8 +48,8 @@ optional = { "?" }
 
 query = { filter_with_op+ }
 
-filter = _{ transpose | select | recurse | identity | field | index_reverse | index | index_multiple | slice }
-filter_with_op = _{ operator? ~ (object_construct | array_construction | datatypes | filter) }
+filter = _{ transpose | select | iterator | recurse | identity | field | index_reverse | index | slice }
+filter_with_op = _{ operator? ~ (datatypes | filter | array_construction | object_construct) }
 
 pipe = { "|" }
 comma = { "," }

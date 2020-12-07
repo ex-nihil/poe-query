@@ -44,7 +44,7 @@ impl Serialize for DatValue
                     for value in list {
                         match value {
                             DatValue::KeyValue(k, v) => map.serialize_entry(k.as_str(),&*v)?,
-                            _ => panic!("wtf"),
+                            _ => panic!("object contained an unexpected value"),
                         }
                     }
                     map.end()
@@ -53,7 +53,7 @@ impl Serialize for DatValue
                     map.serialize_entry(k.as_str(),&*v)?;
                     map.end()
                 } else {
-                    panic!(format!("object contained something else than a list, probably a keyvalue. fix this. {:?}", self).as_str());
+                    panic!("object contained an unexpected value");
                 }
             },
             DatValue::List(list) => {
@@ -73,6 +73,9 @@ impl Serialize for DatValue
             DatValue::Str(text) => {
                 serializer.serialize_str(text)
             }
+            DatValue::KeyValue(_, value) => {
+                value.serialize(serializer)
+            }
             DatValue::Byte(value) => {
                 serializer.serialize_u8(*value)
             }
@@ -88,7 +91,6 @@ impl Serialize for DatValue
             DatValue::Empty => {
                 serializer.serialize_unit()
             }
-            _ => panic!("unimplemented"),
         }
     }
 }

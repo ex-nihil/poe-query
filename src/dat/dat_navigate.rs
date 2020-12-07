@@ -338,26 +338,26 @@ impl DatNavigateImpl for DatNavigate<'_> {
                     new_value = Some(result);
                 }
                 Term::iterator => {
-                    new_value = Some(self.to_iterable()); // TODO: remove?
+                    new_value = Some(self.to_iterable());
                 }
                 Term::object(obj_terms) => {
                     if let Some(value) = &self.current_value {
-                        let asd = format!("{:?}", value)[..30].to_string();
                         new_value = Some(iterate(value, |v| {
-                            //let value = Some(DatValue::Iterator(vec![v.clone()]));
                             let mut clone = self.clone_with_value(Some(v.clone()));
                             let output = clone.traverse_terms(obj_terms);
                             Some(DatValue::Object(Box::new(output)))
                         }));
+                    } else {
+                        let output = self.clone().traverse_terms(obj_terms);
+                        new_value = Some(DatValue::Object(Box::new(output)));
                     }
-                    // TODO: support object creation without input
                 }
                 Term::kv(key, kv_terms) => {
                     let result = self.clone().traverse_terms(&kv_terms.to_vec());
                     new_value = Some(DatValue::KeyValue(key.to_string(), Box::new(result)));
                 }
                 Term::identity => {
-                    if self.current_file.is_none() {
+                    if self.current_file.is_none() && self.current_value.is_none() {
                         let exports: Vec<DatValue> = self
                             .specs
                             .values()
@@ -380,20 +380,10 @@ impl DatNavigateImpl for DatNavigate<'_> {
                 }
                 Term::array(arr_terms) => {
                     let result = self.clone().traverse_terms(&arr_terms.to_vec());
-
-                    if self.current_value.is_some() {
-                        match result {
-                            DatValue::Empty => {
-                                new_value = Some(self.to_iterable());
-                            }
-                            asd => println!("WTF MAN: {:?}", asd),
-                        }
-                    } else {
-                        new_value = match result {
-                            DatValue::Empty => Some(DatValue::List(Vec::with_capacity(0))),
-                            _ => Some(result),
-                        };
-                    }
+                    new_value = match result {
+                        DatValue::Empty => Some(DatValue::List(Vec::with_capacity(0))),
+                        _ => Some(result),
+                    };
                 }
                 Term::string(text) => {
                     new_value = Some(DatValue::Str(text.to_string()));
