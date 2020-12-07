@@ -20,6 +20,8 @@ pub enum Term {
     equal,
     pipe,
     string(String),
+    set_variable(String),
+    get_variable(String),
     unsigned_number(u64),
     signed_number(i64),
     transpose,
@@ -72,6 +74,16 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
         Rule::string => {
             let text = pair.as_span().as_str().to_string();
             Term::string(text)
+        }
+        Rule::assign_variable => {
+            let mut inner = pair.into_inner();
+            let text = inner.next().unwrap().into_inner().as_str();
+            Term::set_variable(text.to_string())
+        }
+        Rule::variable => {
+            let mut inner = pair.into_inner();
+            let text = inner.next().unwrap().as_str();
+            Term::get_variable(text.to_string())
         }
         Rule::index => {
             let ident = pair.into_inner().next().unwrap().as_str();

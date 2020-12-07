@@ -56,6 +56,7 @@ impl DatContainerImpl for DatContainer {
         DatNavigate {
             files: &self.files,
             specs: &self.specs,
+            variables: HashMap::new(),
             current_field: None,
             current_file: None,
             current_value: None,

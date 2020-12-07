@@ -11,6 +11,7 @@ use super::dat_spec::FileSpec;
 pub struct DatNavigate<'a> {
     pub files: &'a HashMap<String, DatFile>,
     pub specs: &'a HashMap<String, FileSpec>,
+    pub variables: HashMap<String, DatValue>,
     pub current_field: Option<String>,
     pub current_file: Option<&'a str>,
     pub current_value: Option<DatValue>,
@@ -276,7 +277,7 @@ impl DatNavigateImpl for DatNavigate<'_> {
 
                 return DatValue::Object(Box::new(DatValue::List(kv_list)));
             }
-            _ => return DatValue::Empty, // ???
+            _ => return DatValue::Empty,
         };
     }
 
@@ -284,6 +285,7 @@ impl DatNavigateImpl for DatNavigate<'_> {
         DatNavigate {
             files: self.files,
             specs: self.specs,
+            variables: self.variables.clone(),
             current_field: self.current_field.clone(),
             current_file: self.current_file,
             current_value: self.current_value.clone(),
@@ -339,6 +341,12 @@ impl DatNavigateImpl for DatNavigate<'_> {
                 }
                 Term::iterator => {
                     new_value = Some(self.to_iterable());
+                }
+                Term::set_variable(name) => {
+                    self.variables.insert(name.to_string(), self.current_value().clone());
+                }
+                Term::get_variable(name) => {
+                    new_value = Some(self.variables.get(name).unwrap_or(&DatValue::Empty).clone());
                 }
                 Term::object(obj_terms) => {
                     if let Some(value) = &self.current_value {
@@ -489,6 +497,7 @@ impl DatNavigateImpl for DatNavigate<'_> {
         DatNavigate {
             files: self.files,
             specs: self.specs,
+            variables: self.variables.clone(),
             current_field: self.current_field.clone(),
             current_file: self.current_file,
             current_value: value,

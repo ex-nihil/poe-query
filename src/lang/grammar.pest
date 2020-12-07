@@ -1,6 +1,7 @@
 // ignore identity for now
 WHITESPACE = _{ " " }
 identity = { "."{1} }
+dollar = _{ "$" }
 
 identifier = { (ASCII_ALPHANUMERIC | "_")+ }
 digits = { ASCII_DIGIT+ }
@@ -21,6 +22,10 @@ signed_number = { (("(signed)" ~ minus) | ("(signed)" | minus)) ~ digits+ }
 quoted_string = _{ "\"" ~ string ~ "\"" }
 datatypes = _{ quoted_string | number }
 
+// assignment
+variable = { dollar ~ identifier }
+assign_variable = { "as" ~ variable }
+
 // arithmetic
 plus  = { "+" }
 minus = { "-" }
@@ -28,6 +33,8 @@ minus = { "-" }
 // functions
 select = { "select(" ~ bool_expression ~ ")" }
 transpose = { "transpose" }
+reduce_init_value = { datatypes ~ ";" }
+//reduce = { "reduce" ~ filter_with_op+ ~ "as" ~ reduce_var ~ "(" ~ reduce_init_value ~ . + $identifier ~ ")"}
 
 // comparisons
 equal = { "==" }
@@ -48,7 +55,7 @@ optional = { "?" }
 
 query = { filter_with_op+ }
 
-filter = _{ transpose | select | iterator | recurse | identity | field | index_reverse | index | slice }
+filter = _{ assign_variable | variable | transpose | select | iterator | recurse | identity | field | index_reverse | index | slice }
 filter_with_op = _{ operator? ~ (datatypes | filter | array_construction | object_construct) }
 
 pipe = { "|" }
