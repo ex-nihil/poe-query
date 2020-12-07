@@ -44,6 +44,7 @@ fn main() {
 
     let query = matches.value_of("query").unwrap();
     let terms = lang::parse(query);
+    println!("TERM: {:?}", terms);
 
     let mut now = Instant::now();
     let container = DatContainer::from_install("/Users/nihil/code/poe-files", "spec");

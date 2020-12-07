@@ -1,6 +1,6 @@
 // ignore identity for now
 WHITESPACE = _{ " " }
-identity = _{ "."{1} }
+identity = { "."{1} }
 
 identifier = { (ASCII_ALPHANUMERIC | "_")+ }
 digits = { ASCII_DIGIT+ }
@@ -28,6 +28,7 @@ minus = { "-" }
 
 // functions
 select = { "select(" ~ bool_expression ~ ")" }
+transpose = { "transpose" }
 
 // comparisons
 equal = { "==" }
@@ -42,13 +43,14 @@ key = { identifier ~ ":" }
 
 named_query = { key ~ (!("," ~ &key) ~ filter_with_op)+ }
 object_construct = { "{" ~ (named_query ~ operator?)+ ~ "}" }
+array_construction = { "[" ~ filter_with_op* ~ "]" }
 
 optional = { "?" }
 
 query = { filter_with_op+ }
 
-filter = _{ select | recurse | identity | field | iterator | index_reverse | index | index_multiple | slice }
-filter_with_op = _{ (operator? ~ (object_construct | datatypes | filter)) }
+filter = _{ transpose | select | recurse | identity | field | index_reverse | index | index_multiple | slice }
+filter_with_op = _{ operator? ~ (object_construct | array_construction | datatypes | filter) }
 
 pipe = { "|" }
 comma = { "," }

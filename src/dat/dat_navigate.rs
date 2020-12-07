@@ -20,13 +20,13 @@ pub trait DatNavigateImpl {
     fn child(&mut self, name: &str);
     fn index(&mut self, index: usize);
     fn slice(&mut self, from: usize, to: usize);
-    fn iterate(&mut self);
+    fn to_iterable(&mut self) -> DatValue;
     fn value(&mut self) -> DatValue;
     fn current_value(&self) -> DatValue;
     fn clone(&self) -> DatNavigate;
     fn traverse_term(&mut self, term: &Term) -> DatValue;
     fn traverse_terms(&mut self, parsed_terms: &Vec<Term>) -> DatValue;
-    fn traverse_terms_inner(&mut self, parsed_terms: &[Term]) -> DatValue;
+    fn traverse_terms_inner(&mut self, parsed_terms: &[Term]) -> Option<DatValue>;
 
     fn enter_foreign(&mut self);
     fn rows_from(&self, file: &str, indices: &[u64]) -> DatValue;
@@ -41,7 +41,7 @@ impl DatNavigateImpl for DatNavigate<'_> {
                 .values()
                 .find(|&s| s.export == name)
                 .expect("no spec with export");
-                
+
             // generate initial values
             let file = self.files.get(&spec.filename).unwrap();
             let values: Vec<DatValue> = (0..file.rows_count)
@@ -125,11 +125,12 @@ impl DatNavigateImpl for DatNavigate<'_> {
         }
     }
 
-    fn iterate(&mut self) {
+    fn to_iterable(&mut self) -> DatValue {
         self.enter_foreign();
         let value = self.current_value.clone().unwrap_or(DatValue::Empty);
         let iteratable = match value {
             DatValue::List(list) => DatValue::Iterator(list),
+            DatValue::Iterator(list) => DatValue::Iterator(list),
             DatValue::Object(content) => {
                 let fields = match *content {
                     DatValue::List(fields) => fields,
@@ -143,7 +144,7 @@ impl DatNavigateImpl for DatNavigate<'_> {
                 obj
             )),
         };
-        self.current_value = Some(iteratable);
+        iteratable
     }
 
     fn slice(&mut self, from: usize, to: usize) {
@@ -153,10 +154,10 @@ impl DatNavigateImpl for DatNavigate<'_> {
                 self.current_value = Some(DatValue::List(
                     list[from..usize::min(to, list.len())].to_vec(),
                 ))
-            },
+            }
             DatValue::Str(str) => {
                 self.current_value = Some(DatValue::Str(str[from..to].to_string()))
-            },
+            }
             _ => panic!("attempt to index non-indexable value {:?}", value),
         }
     }
@@ -260,7 +261,6 @@ impl DatNavigateImpl for DatNavigate<'_> {
                 return DatValue::List(result);
             }
             DatValue::U64(i) => {
-                println!("calculating value U64");
                 // TODO: extract to function
                 let kv_list: Vec<DatValue> = spec
                     .fields
@@ -297,24 +297,28 @@ impl DatNavigateImpl for DatNavigate<'_> {
         });
 
         let values: Vec<DatValue> = parts
-            .map(|terms| self.clone().traverse_terms_inner(&terms))
+            .filter_map(|terms| self.clone().traverse_terms_inner(&terms))
             .collect();
-        let value = if values.len() > 1 {
-            DatValue::List(values)
+
+        self.current_value = if values.len() > 1 {
+            Some(DatValue::List(values))
+        } else if values.len() == 1 {
+            Some(values.first().unwrap().clone())
         } else {
-            values.first().unwrap().clone()
+            None
         };
 
-        self.current_value = Some(value);
         self.current_value()
     }
 
     // Comma has be dealt with
-    fn traverse_terms_inner(&mut self, terms: &[Term]) -> DatValue {
+    fn traverse_terms_inner(&mut self, terms: &[Term]) -> Option<DatValue> {
+        let mut new_value = None;
         for term in terms {
             match term {
                 Term::select(lhs, op, rhs) => {
-                    let result = iterate(self.current_value.as_ref().unwrap(), |v| {
+                    let elems = self.to_iterable();
+                    let result = iterate(&elems, |v| {
                         let mut clone = self.clone_with_value(Some(v.clone()));
                         let left = clone.traverse_terms(lhs);
                         clone = self.clone_with_value(Some(v.clone()));
@@ -331,42 +335,116 @@ impl DatNavigateImpl for DatNavigate<'_> {
                             None
                         }
                     });
-                    self.current_value = Some(result);
+                    new_value = Some(result);
                 }
-                Term::iterator => self.iterate(),
+                Term::iterator => {
+                    new_value = Some(self.to_iterable()); // TODO: remove?
+                }
                 Term::object(obj_terms) => {
                     if let Some(value) = &self.current_value {
-                        let output = iterate(value, |v| {
+                        let asd = format!("{:?}", value)[..30].to_string();
+                        new_value = Some(iterate(value, |v| {
                             //let value = Some(DatValue::Iterator(vec![v.clone()]));
                             let mut clone = self.clone_with_value(Some(v.clone()));
                             let output = clone.traverse_terms(obj_terms);
                             Some(DatValue::Object(Box::new(output)))
-                        });
-                        self.current_value = Some(output);
+                        }));
                     }
                     // TODO: support object creation without input
                 }
                 Term::kv(key, kv_terms) => {
                     let result = self.clone().traverse_terms(&kv_terms.to_vec());
-                    self.current_value =
-                        Some(DatValue::KeyValue(key.to_string(), Box::new(result)));
+                    new_value = Some(DatValue::KeyValue(key.to_string(), Box::new(result)));
+                }
+                Term::identity => {
+                    if self.current_file.is_none() {
+                        let exports: Vec<DatValue> = self
+                            .specs
+                            .values()
+                            .map(|spec| {
+                                let file = self.files.get(&spec.filename).unwrap();
+
+                                DatValue::KeyValue(
+                                    spec.export.to_string(),
+                                    Box::new(DatValue::List(vec![DatValue::Str(format!(
+                                        "list containing {} rows",
+                                        file.rows_count
+                                    ))])),
+                                )
+                            })
+                            .collect();
+                        new_value = Some(DatValue::Object(Box::new(DatValue::List(exports))));
+                    } else {
+                        new_value = Some(self.current_value());
+                    }
+                }
+                Term::array(arr_terms) => {
+                    let result = self.clone().traverse_terms(&arr_terms.to_vec());
+
+                    if self.current_value.is_some() {
+                        match result {
+                            DatValue::Empty => {
+                                new_value = Some(self.to_iterable());
+                            }
+                            asd => println!("WTF MAN: {:?}", asd),
+                        }
+                    } else {
+                        new_value = match result {
+                            DatValue::Empty => Some(DatValue::List(Vec::with_capacity(0))),
+                            _ => Some(result),
+                        };
+                    }
                 }
                 Term::string(text) => {
-                    self.current_value = Some(DatValue::Str(text.to_string()));
+                    new_value = Some(DatValue::Str(text.to_string()));
                 }
+                Term::transpose => match self.current_value.clone().unwrap_or(DatValue::Empty) {
+                    DatValue::List(values) => {
+                        let lists: Vec<Vec<DatValue>> = values
+                            .iter()
+                            .map(|value| match value {
+                                DatValue::List(v) => v.clone(),
+                                rawr => panic!(format!(
+                                    "transpose is only supported on lists + {:?}",
+                                    rawr
+                                )),
+                            })
+                            .collect();
+
+                        let max = lists
+                            .iter()
+                            .fold(0u64, |max, list| u64::max(max, list.len() as u64));
+
+                        let outer: Vec<DatValue> = (0..max)
+                            .map(|i| {
+                                let inner = lists
+                                    .iter()
+                                    .map(|list| {
+                                        list.get(i as usize).unwrap_or(&DatValue::Empty).clone()
+                                    })
+                                    .collect();
+                                DatValue::List(inner)
+                            })
+                            .collect();
+                        new_value = Some(DatValue::List(outer));
+                    }
+                    rawr => panic!(format!("transpose is only supported on lists - {:?}", rawr)),
+                },
                 Term::unsigned_number(value) => {
-                    self.current_value = Some(DatValue::U64(*value));
+                    new_value = Some(DatValue::U64(*value));
                 }
                 Term::signed_number(value) => {
-                    self.current_value = Some(DatValue::I64(*value));
+                    new_value = Some(DatValue::I64(*value));
                 }
                 _ => {
-                    self.traverse_term(&term.clone());
+                    new_value = Some(self.traverse_term(&term.clone()));
                 }
             }
+
+            self.current_value = new_value.clone(); // yikes
         }
 
-        self.current_value()
+        new_value
     }
 
     fn traverse_term(&mut self, term: &Term) -> DatValue {

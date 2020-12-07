@@ -4,7 +4,6 @@ use std::fs;
 use poe_bundle_reader::reader::{BundleReader, BundleReaderRead};
 
 use super::dat_file::DatFile;
-use super::dat_file::DatValue;
 use super::dat_navigate::DatNavigate;
 use super::dat_spec::FileSpec;
 
@@ -54,25 +53,12 @@ pub trait DatContainerImpl {
 
 impl DatContainerImpl for DatContainer {
     fn navigate(&self) -> DatNavigate {
-        let exports: Vec<DatValue> = self
-            .specs
-            .values()
-            .map(|spec| {
-                let file = self.files.get(&spec.filename).unwrap();
-                
-                DatValue::KeyValue(
-                    spec.export.to_string(),
-                    Box::new(DatValue::List(vec![DatValue::Str(format!("list containing {} rows", file.rows_count))])),
-                )
-            })
-            .collect();
-
         DatNavigate {
             files: &self.files,
             specs: &self.specs,
             current_field: None,
             current_file: None,
-            current_value: Some(DatValue::Object(Box::new(DatValue::List(exports)))),
+            current_value: None,
         }
     }
 }

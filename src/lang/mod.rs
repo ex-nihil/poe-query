@@ -11,9 +11,10 @@ pub enum Term {
     by_name(String),
     by_index(usize),
     by_index_reverse(usize),
-    slice(usize,usize),
+    slice(usize, usize),
     kv(String, Vec<Term>),
     object(Vec<Term>),
+    array(Vec<Term>),
     select(Vec<Term>, Compare, Vec<Term>),
     iterator,
     equal,
@@ -21,6 +22,8 @@ pub enum Term {
     string(String),
     unsigned_number(u64),
     signed_number(i64),
+    transpose,
+    identity,
     comma,
     noop,
 }
@@ -54,48 +57,9 @@ pub fn parse(source: &str) -> Vec<Term> {
 // TODO: this shit must be moved to navigator so it can store objects created as current value
 fn build_ast(pair: pest::iterators::Pair<Rule>, dst: &mut Vec<Term>) {
     match pair.as_rule() {
-        Rule::object_construct => {
-            let content = pair.into_inner();
-            let mut object_terms = Vec::new();
-            for pair in content {
-                match pair.as_rule() {
-                    Rule::comma => object_terms.push(to_term(pair)),
-                    _ => {
-                        let mut content = pair.into_inner();
-                        let ident = match content.next() {
-                            Some(p) => p.into_inner().as_str(),
-                            None => panic!("Introduced a new construct without updating term parser?"),
-                        };
-                        let mut kv_terms = Vec::new();
-                        while let Some(next) = content.next() {
-                            kv_terms.push(to_term(next));
-                        }
-                        object_terms.push(Term::kv(ident.to_string(), kv_terms));
-                    }
-                }
-            }
-            dst.push(Term::object(object_terms));
-        }
-        Rule::field => {
-            dst.push(to_term(pair));
-        }
-        Rule::index => {
-            dst.push(to_term(pair));
-        }
-        Rule::index_reverse => {
-            dst.push(to_term(pair));
-        }
-        Rule::iterator => dst.push(to_term(pair)),
-        Rule::select => dst.push(to_term(pair)),
-        Rule::slice => dst.push(to_term(pair)),
-        Rule::string => dst.push(to_term(pair)),
-        Rule::signed_number => dst.push(to_term(pair)),
-        Rule::unsigned_number => dst.push(to_term(pair)),
-        Rule::pipe => {},
+        Rule::pipe => {}
         Rule::comma => dst.push(to_term(pair)),
-        _ => {
-            println!("unhandled pair {:?}", pair);
-        }
+        _ => dst.push(to_term(pair)),
     }
 }
 
@@ -123,7 +87,7 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
                         let value_string = inner.next().unwrap().as_str();
                         let value = value_string.parse::<i64>().unwrap();
                         Term::signed_number(-value)
-                    },
+                    }
                     _ => {
                         let value = next.as_str().parse::<i64>().unwrap();
                         Term::signed_number(value)
@@ -132,12 +96,12 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
             } else {
                 panic!("Parsing failed Rule::signed_number. This is a bug in the language spec.");
             }
-        },
+        }
         Rule::unsigned_number => {
             let next = pair.into_inner().next().unwrap();
             let value = next.as_str().parse::<u64>().unwrap();
             Term::unsigned_number(value)
-        },
+        }
         Rule::select => {
             let inner = pair.into_inner();
             let mut lhs = Vec::new();
@@ -158,7 +122,7 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
                     }
                     _ => current.push(to_term(next)),
                 }
-            };
+            }
             Term::select(lhs, comparison, rhs)
         }
         Rule::index_reverse => {
@@ -172,14 +136,18 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
             let mut to = usize::MAX;
             if let Some(first) = inner.next() {
                 match first.as_rule() {
-                    Rule::slice_from => from = first.into_inner().as_str().parse::<usize>().unwrap(),
+                    Rule::slice_from => {
+                        from = first.into_inner().as_str().parse::<usize>().unwrap()
+                    }
                     Rule::slice_to => to = first.into_inner().as_str().parse::<usize>().unwrap(),
                     _ => {}
                 }
             }
             if let Some(first) = inner.next() {
                 match first.as_rule() {
-                    Rule::slice_from => from = first.into_inner().as_str().parse::<usize>().unwrap(),
+                    Rule::slice_from => {
+                        from = first.into_inner().as_str().parse::<usize>().unwrap()
+                    }
                     Rule::slice_to => to = first.into_inner().as_str().parse::<usize>().unwrap(),
                     _ => {}
                 }
@@ -187,7 +155,17 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
             Term::slice(from, to)
         }
         Rule::pipe => Term::pipe,
+        Rule::identity => Term::identity,
         Rule::comma => Term::comma,
+        Rule::transpose => Term::transpose,
+        Rule::array_construction => {
+            let content = pair.into_inner();
+            let mut items = Vec::new();
+            for next in content {
+                items.push(to_term(next));
+            }
+            Term::array(items)
+        }
         Rule::object_construct => {
             let content = pair.into_inner();
             let mut object_terms = Vec::new();
@@ -198,7 +176,9 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
                         let mut content = pair.into_inner();
                         let ident = match content.next() {
                             Some(p) => p.into_inner().as_str(),
-                            None => panic!("Introduced a new construct without updating term parser?"),
+                            None => {
+                                panic!("Introduced a new construct without updating term parser?")
+                            }
                         };
                         let mut kv_terms = Vec::new();
                         while let Some(next) = content.next() {
@@ -209,7 +189,7 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
                 }
             }
             Term::object(object_terms)
-        },
+        }
         _ => {
             println!("UNHANDLED: {}", pair);
             Term::noop
