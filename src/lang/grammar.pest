@@ -23,7 +23,7 @@ quoted_string = _{ "\"" ~ string ~ "\"" }
 datatypes = _{ quoted_string | number }
 
 // assignment
-variable = { dollar ~ identifier }
+variable = ${ dollar ~ identifier }
 assign_variable = { "as" ~ variable }
 
 // arithmetic
@@ -34,7 +34,7 @@ minus = { "-" }
 select = { "select(" ~ bool_expression ~ ")" }
 transpose = { "transpose" }
 reduce_init_value = { datatypes ~ ";" }
-//reduce = { "reduce" ~ filter_with_op+ ~ "as" ~ reduce_var ~ "(" ~ reduce_init_value ~ . + $identifier ~ ")"}
+reduce = { "reduce" ~ (!assign_variable ~ filter_with_op)+ ~ assign_variable ~ "(" ~ reduce_init_value ~ filter_with_op* ~ ")" }
 
 // comparisons
 equal = { "==" }
@@ -55,7 +55,7 @@ optional = { "?" }
 
 query = { filter_with_op+ }
 
-filter = _{ assign_variable | variable | transpose | select | iterator | recurse | identity | field | index_reverse | index | slice }
+filter = _{ reduce | assign_variable | variable | transpose | select | iterator | recurse | identity | field | index_reverse | index | slice }
 filter_with_op = _{ operator? ~ (datatypes | filter | array_construction | object_construct) }
 
 pipe = { "|" }

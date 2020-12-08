@@ -23,6 +23,7 @@ pub enum Term {
     set_variable(String),
     get_variable(String),
     unsigned_number(u64),
+    reduce(Box<Term>, Vec<Term>),
     signed_number(i64),
     transpose,
     identity,
@@ -60,7 +61,29 @@ pub fn parse(source: &str) -> Vec<Term> {
 fn build_ast(pair: pest::iterators::Pair<Rule>, dst: &mut Vec<Term>) {
     match pair.as_rule() {
         Rule::pipe => {}
-        Rule::comma => dst.push(to_term(pair)),
+        Rule::reduce => {
+            let inner = pair.into_inner();
+
+            let mut initial = Term::noop;
+            let mut inner_terms = Vec::new();
+            let mut outside = true;
+            for next in inner {
+                match next.as_rule() {
+                    Rule::reduce_init_value => {
+                        outside = false;
+                        initial = to_term(next.into_inner().next().unwrap());
+                    }
+                    _ => {
+                        if outside {
+                            dst.push(to_term(next));
+                        } else {
+                            inner_terms.push(to_term(next));
+                        }
+                    }
+                }
+            }
+            dst.push(Term::reduce(Box::new(initial), inner_terms));
+        }
         _ => dst.push(to_term(pair)),
     }
 }
@@ -81,6 +104,7 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
             Term::set_variable(text.to_string())
         }
         Rule::variable => {
+            println!("{:?}", pair);
             let mut inner = pair.into_inner();
             let text = inner.next().unwrap().as_str();
             Term::get_variable(text.to_string())

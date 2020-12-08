@@ -9,8 +9,8 @@ use dat::dat_reader::{DatContainer, DatContainerImpl};
 use std::time::Instant;
 
 pub mod lang;
-pub use dat::dat_file::DatValue;
 pub use lang::Term;
+pub use dat::dat_file::DatValue;
 
 fn main() {
     let matches = App::new("PoE DAT transformer")

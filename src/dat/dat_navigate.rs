@@ -4,15 +4,16 @@ use std::convert::TryFrom;
 use super::super::lang::{Compare, Term};
 use super::dat_file::DatFileRead;
 use super::dat_file::{DatFile, DatValue};
+use super::dat_reader::DatStore;
+use super::dat_reader::DatStoreImpl;
 use super::dat_spec::FieldSpecImpl;
 use super::dat_spec::FileSpec;
 
 #[derive(Debug)]
 pub struct DatNavigate<'a> {
-    pub files: &'a HashMap<String, DatFile>,
-    pub specs: &'a HashMap<String, FileSpec>,
+    pub store: DatStore<'a>,
     pub variables: HashMap<String, DatValue>,
-    pub current_field: Option<String>,
+    pub current_field: Option<String>, // I should be able to get rid of this
     pub current_file: Option<&'a str>,
     pub current_value: Option<DatValue>,
 }
@@ -37,14 +38,10 @@ pub trait DatNavigateImpl {
 impl DatNavigateImpl for DatNavigate<'_> {
     fn child(&mut self, name: &str) {
         if self.current_file.is_none() {
-            let spec = self
-                .specs
-                .values()
-                .find(|&s| s.export == name)
-                .expect("no spec with export");
+            let spec = self.store.spec_by_export(name).unwrap();
 
             // generate initial values
-            let file = self.files.get(&spec.filename).unwrap();
+            let file = self.store.file(&spec.filename).unwrap();
             let values: Vec<DatValue> = (0..file.rows_count)
                 .map(|i| {
                     let kv_list: Vec<DatValue> = spec
@@ -82,7 +79,10 @@ impl DatNavigateImpl for DatNavigate<'_> {
     }
 
     fn enter_foreign(&mut self) {
-        let current_spec = self.current_file.map(|file| self.specs.get(file)).flatten();
+        let current_spec = self
+            .current_file
+            .map(|file| self.store.spec(file))
+            .flatten();
         let current_field = current_spec
             .map(|spec| {
                 spec.fields.iter().find(|&field| {
@@ -184,8 +184,8 @@ impl DatNavigateImpl for DatNavigate<'_> {
 
     fn value(&mut self) -> DatValue {
         let current = self.current_file.unwrap();
-        let spec = self.specs.get(current).unwrap();
-        let file = self.files.get(current).unwrap();
+        let spec = self.store.spec(current).unwrap();
+        let file = self.store.file(current).unwrap();
 
         let current_value = self.current_value.clone().unwrap_or(DatValue::Empty);
         match current_value {
@@ -283,8 +283,7 @@ impl DatNavigateImpl for DatNavigate<'_> {
 
     fn clone(&self) -> DatNavigate {
         DatNavigate {
-            files: self.files,
-            specs: self.specs,
+            store: self.store,
             variables: self.variables.clone(),
             current_field: self.current_field.clone(),
             current_file: self.current_file,
@@ -343,10 +342,49 @@ impl DatNavigateImpl for DatNavigate<'_> {
                     new_value = Some(self.to_iterable());
                 }
                 Term::set_variable(name) => {
-                    self.variables.insert(name.to_string(), self.current_value().clone());
+                    self.variables
+                        .insert(name.to_string(), self.current_value().clone());
                 }
                 Term::get_variable(name) => {
                     new_value = Some(self.variables.get(name).unwrap_or(&DatValue::Empty).clone());
+                }
+                Term::reduce(init, terms) => {
+                    // seach for variables
+                    let vars: Vec<&String> = terms
+                        .iter()
+                        .filter_map(|term| match term {
+                            Term::get_variable(variable) => Some(variable),
+                            _ => None,
+                        })
+                        .collect();
+
+                    if vars.is_empty() {
+                        let initial = self.traverse_terms_inner(&[*init.clone()]);
+                        let result = self.clone_with_value(initial).traverse_terms(terms);
+                        new_value = Some(result);
+                    } else {
+                        let initial = self.traverse_terms_inner(&[*init.clone()]);
+                        let variable = vars.first().unwrap().as_str();
+                        let value = self.variables.get(variable).unwrap_or(&DatValue::Empty);
+
+                        match value {
+                            DatValue::Iterator(elements) => {
+                                //elements.iter().fold(initial, |acc, x| acc + x);
+                            }
+                            _ => {}
+                        };
+
+                        panic!("reduce not implemented :(");
+                        iterate(value, |_| {
+                            //let sum = a.iter().fold(0, |acc, x| acc + x);
+                            // TODO: initial value and current element must both be available! :(
+
+                            //let initial = self.traverse_terms_inner(&[*init.clone()]);
+                            //let result = self.clone_with_value(initial).traverse_terms(terms);
+                            //new_value = Some(result);
+                            None
+                        });
+                    }
                 }
                 Term::object(obj_terms) => {
                     if let Some(value) = &self.current_value {
@@ -367,10 +405,12 @@ impl DatNavigateImpl for DatNavigate<'_> {
                 Term::identity => {
                     if self.current_file.is_none() && self.current_value.is_none() {
                         let exports: Vec<DatValue> = self
-                            .specs
-                            .values()
-                            .map(|spec| {
-                                let file = self.files.get(&spec.filename).unwrap();
+                            .store
+                            .exports()
+                            .iter()
+                            .map(|export| {
+                                let spec = self.store.spec_by_export(export).unwrap();
+                                let file = self.store.file(&spec.filename).unwrap();
 
                                 DatValue::KeyValue(
                                     spec.export.to_string(),
@@ -464,8 +504,8 @@ impl DatNavigateImpl for DatNavigate<'_> {
     }
 
     fn rows_from(&self, filepath: &str, indices: &[u64]) -> DatValue {
-        let foreign_spec = self.specs.get(filepath).unwrap();
-        let file = self.files.get(filepath).unwrap();
+        let foreign_spec = self.store.spec(filepath).unwrap();
+        let file = self.store.file(filepath).unwrap();
 
         let values: Vec<DatValue> = indices
             .iter()
@@ -495,8 +535,7 @@ impl DatNavigateImpl for DatNavigate<'_> {
     // current value can be large datasets
     fn clone_with_value(&self, value: Option<DatValue>) -> DatNavigate {
         DatNavigate {
-            files: self.files,
-            specs: self.specs,
+            store: self.store,
             variables: self.variables.clone(),
             current_field: self.current_field.clone(),
             current_file: self.current_file,

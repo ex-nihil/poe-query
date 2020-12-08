@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 
 use poe_bundle_reader::reader::{BundleReader, BundleReaderRead};
@@ -47,6 +47,38 @@ impl DatContainer {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct DatStore<'a> {
+    // TODO: lazy load of dat files
+    pub files: &'a HashMap<String, DatFile>,
+    pub specs: &'a HashMap<String, FileSpec>,
+}
+
+pub trait DatStoreImpl<'a> {
+    fn file(&self, path: &str) -> Option<&'a DatFile>;
+    fn spec(&self, path: &str) -> Option<&'a FileSpec>;
+    fn spec_by_export(&self, export: &str) -> Option<&'a FileSpec>;
+    fn exports(&self) -> HashSet<&str>;
+}
+
+impl<'a> DatStoreImpl<'a> for DatStore<'a> {
+    fn file(&self, path: &str) -> Option<&'a DatFile> {
+        self.files.get(path)
+    }
+
+    fn spec(&self, path: &str) -> Option<&'a FileSpec> {
+        self.specs.get(path)
+    }
+
+    fn spec_by_export(&self, export: &str) -> Option<&'a FileSpec> {
+        self.specs.values().find(|s| s.export == export)
+    }
+
+    fn exports(&self) -> HashSet<&str> {
+        self.specs.iter().map(|(_, s)| s.export.as_str()).collect()
+    }
+}
+
 pub trait DatContainerImpl {
     fn navigate(&self) -> DatNavigate;
 }
@@ -54,8 +86,10 @@ pub trait DatContainerImpl {
 impl DatContainerImpl for DatContainer {
     fn navigate(&self) -> DatNavigate {
         DatNavigate {
-            files: &self.files,
-            specs: &self.specs,
+            store: DatStore {
+                files: &self.files,
+                specs: &self.specs,
+            },
             variables: HashMap::new(),
             current_field: None,
             current_file: None,
