@@ -10,7 +10,7 @@ pub enum Value {
     List(Vec<Value>),
     Iterator(Vec<Value>),
     KeyValue(String, Box<Value>),
-    Object(Box<Value>),
+    Object(Box<Value>), // TODO: make this a map instead
     Bool(bool),
     Empty,
 }
@@ -60,20 +60,22 @@ impl ops::Add<Value> for Value {
                 // TODO: this feels atrocious, search for a better way 
                 let rhs = match _rhs {
                     Value::Object(boxed_rhs) => {
+                        println!("RHS: {:?}", boxed_rhs);
                         match *boxed_rhs {
                             Value::List(rhs) => rhs,
+                            Value::KeyValue(_, _) => vec![*boxed_rhs],
                             _ => panic!("operations requires both sides to be of same type"),
                         }
                     }
                     _ => panic!("operations requires both sides to be of same type"),
                 };
 
-                if let Value::List(lhs) = *boxed_lhs {
-                    let keyvalues = Value::List([&lhs[..], &rhs[..]].concat());
-                    Value::Object(Box::new(keyvalues))
-                } else {
-                    panic!("operations requires both sides to be of same type");
-                }
+                let result = match *boxed_lhs {
+                    Value::List(lhs) => Value::List([&lhs[..], &rhs[..]].concat()),
+                    Value::KeyValue(_, _) => Value::List([&[*boxed_lhs], &rhs[..]].concat()),
+                    _ => panic!("operations requires both sides to be of same type"),
+                };
+                Value::Object(Box::new(result))
             }
             Value::Iterator(_) => {
                 panic!("addition of iterators not yet implemented");
