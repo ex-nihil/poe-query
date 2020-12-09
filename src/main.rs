@@ -4,7 +4,7 @@ extern crate pest;
 extern crate pest_derive;
 
 mod dat;
-use dat::dat_navigate::DatNavigateImpl;
+use dat::dat_navigate::TermsProcessor;
 use dat::dat_reader::{DatContainer, DatContainerImpl};
 use std::time::Instant;
 
@@ -52,7 +52,7 @@ fn main() {
     let read_index_ms = now.elapsed().as_millis();
 
     now = Instant::now();
-    let value = navigator.traverse_terms(&terms);
+    let value = navigator.process(&terms);
     let query_ms = now.elapsed().as_millis();
 
     let serialized = serde_json::to_string_pretty(&value).unwrap();

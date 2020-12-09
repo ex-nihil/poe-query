@@ -4,7 +4,7 @@ use std::fs;
 use poe_bundle_reader::reader::{BundleReader, BundleReaderRead};
 
 use super::dat_file::DatFile;
-use super::dat_navigate::DatNavigate;
+use super::dat_navigate::TraversalContext;
 use super::dat_spec::FileSpec;
 
 pub struct DatContainer {
@@ -80,12 +80,12 @@ impl<'a> DatStoreImpl<'a> for DatStore<'a> {
 }
 
 pub trait DatContainerImpl {
-    fn navigate(&self) -> DatNavigate;
+    fn navigate(&self) -> TraversalContext;
 }
 
 impl DatContainerImpl for DatContainer {
-    fn navigate(&self) -> DatNavigate {
-        DatNavigate {
+    fn navigate(&self) -> TraversalContext {
+        TraversalContext {
             store: DatStore {
                 files: &self.files,
                 specs: &self.specs,
