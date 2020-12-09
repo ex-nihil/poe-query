@@ -10,7 +10,7 @@ use std::time::Instant;
 
 pub mod lang;
 pub use lang::Term;
-pub use dat::dat_file::DatValue;
+pub use dat::value::Value;
 
 fn main() {
     let matches = App::new("PoE DAT transformer")

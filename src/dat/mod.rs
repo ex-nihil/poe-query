@@ -3,3 +3,4 @@ pub mod dat_spec;
 pub mod dat_file;
 pub mod dat_reader;
 pub mod dat_navigate;
+pub mod value;

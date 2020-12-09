@@ -3,53 +3,52 @@ use std::convert::TryFrom;
 
 use super::super::lang::{Compare, Term, Operation};
 use super::dat_file::DatFileRead;
-use super::dat_file::{DatFile, DatValue};
 use super::dat_reader::DatStore;
 use super::dat_reader::DatStoreImpl;
 use super::dat_spec::FieldSpecImpl;
-use super::dat_spec::FileSpec;
+use super::value::Value;
 
 #[derive(Debug)]
 pub struct TraversalContext<'a> {
     pub store: DatStore<'a>,
-    pub variables: HashMap<String, DatValue>,
+    pub variables: HashMap<String, Value>,
     pub current_field: Option<String>, // I should be able to get rid of this
     pub current_file: Option<&'a str>,
-    pub identity: Option<DatValue>,
+    pub identity: Option<Value>,
 }
 
 pub trait TraversalContextImpl {
     fn child(&mut self, name: &str);
     fn index(&mut self, index: usize);
     fn slice(&mut self, from: usize, to: usize);
-    fn to_iterable(&mut self) -> DatValue;
-    fn value(&mut self) -> DatValue;
-    fn identity(&self) -> DatValue;
+    fn to_iterable(&mut self) -> Value;
+    fn value(&mut self) -> Value;
+    fn identity(&self) -> Value;
     fn clone(&self) -> TraversalContext;
 
     fn enter_foreign(&mut self);
-    fn rows_from(&self, file: &str, indices: &[u64]) -> DatValue;
-    fn clone_with_value(&self, name: Option<DatValue>) -> TraversalContext;
+    fn rows_from(&self, file: &str, indices: &[u64]) -> Value;
+    fn clone_with_value(&self, name: Option<Value>) -> TraversalContext;
 }
 pub trait TermsProcessor {
-    fn process(&mut self, parsed_terms: &Vec<Term>) -> DatValue;
-    fn traverse_term(&mut self, term: &Term) -> DatValue;
-    fn traverse_terms_inner(&mut self, parsed_terms: &[Term]) -> Option<DatValue>;
+    fn process(&mut self, parsed_terms: &Vec<Term>) -> Value;
+    fn traverse_term(&mut self, term: &Term) -> Value;
+    fn traverse_terms_inner(&mut self, parsed_terms: &[Term]) -> Option<Value>;
 }
 
 impl TermsProcessor for TraversalContext<'_> {
-    fn process(&mut self, parsed_terms: &Vec<Term>) -> DatValue {
+    fn process(&mut self, parsed_terms: &Vec<Term>) -> Value {
         let parts = parsed_terms.split(|term| match term {
             Term::comma => true,
             _ => false,
         });
 
-        let values: Vec<DatValue> = parts
+        let values: Vec<Value> = parts
             .filter_map(|terms| self.clone().traverse_terms_inner(&terms))
             .collect();
 
         self.identity = if values.len() > 1 {
-            Some(DatValue::List(values))
+            Some(Value::List(values))
         } else if values.len() == 1 {
             Some(values.first().unwrap().clone())
         } else {
@@ -60,7 +59,7 @@ impl TermsProcessor for TraversalContext<'_> {
     }
 
     // Comma has be dealt with
-    fn traverse_terms_inner(&mut self, terms: &[Term]) -> Option<DatValue> {
+    fn traverse_terms_inner(&mut self, terms: &[Term]) -> Option<Value> {
         let mut new_value = None;
         for term in terms {
             match term {
@@ -93,8 +92,8 @@ impl TermsProcessor for TraversalContext<'_> {
                     let lhs_result = self.clone().traverse_terms_inner(lhs);
                     let rhs_result = self.clone().traverse_terms_inner(rhs);
                     let result = match op { // TODO: add operation support on the different types
-                        Operation::add => DatValue::List(vec![lhs_result.unwrap(), rhs_result.unwrap()]),
-                        _ => DatValue::Empty,
+                        Operation::add => Value::List(vec![lhs_result.unwrap(), rhs_result.unwrap()]),
+                        _ => Value::Empty,
                     };
                     new_value = Some(result);
                 }
@@ -103,7 +102,7 @@ impl TermsProcessor for TraversalContext<'_> {
                         .insert(name.to_string(), self.identity().clone());
                 }
                 Term::get_variable(name) => {
-                    new_value = Some(self.variables.get(name).unwrap_or(&DatValue::Empty).clone());
+                    new_value = Some(self.variables.get(name).unwrap_or(&Value::Empty).clone());
                 }
                 Term::reduce(init, terms) => {
                     // seach for variables
@@ -122,7 +121,7 @@ impl TermsProcessor for TraversalContext<'_> {
                     } else {
                         let initial = self.traverse_terms_inner(&[*init.clone()]);
                         let variable = vars.first().unwrap().as_str();
-                        let value = self.variables.get(variable).unwrap_or(&DatValue::Empty).clone();
+                        let value = self.variables.get(variable).unwrap_or(&Value::Empty).clone();
 
                         self.identity = initial;
                         let result = reduce(&value, &mut |v| {
@@ -138,20 +137,20 @@ impl TermsProcessor for TraversalContext<'_> {
                         new_value = Some(iterate(value, |v| {
                             let mut clone = self.clone_with_value(Some(v.clone()));
                             let output = clone.process(obj_terms);
-                            Some(DatValue::Object(Box::new(output)))
+                            Some(Value::Object(Box::new(output)))
                         }));
                     } else {
                         let output = self.clone().process(obj_terms);
-                        new_value = Some(DatValue::Object(Box::new(output)));
+                        new_value = Some(Value::Object(Box::new(output)));
                     }
                 }
                 Term::kv(key, kv_terms) => {
                     let result = self.clone().process(&kv_terms.to_vec());
-                    new_value = Some(DatValue::KeyValue(key.to_string(), Box::new(result)));
+                    new_value = Some(Value::KeyValue(key.to_string(), Box::new(result)));
                 }
                 Term::identity => {
                     if self.current_file.is_none() && self.identity.is_none() {
-                        let exports: Vec<DatValue> = self
+                        let exports: Vec<Value> = self
                             .store
                             .exports()
                             .iter()
@@ -159,16 +158,16 @@ impl TermsProcessor for TraversalContext<'_> {
                                 let spec = self.store.spec_by_export(export).unwrap();
                                 let file = self.store.file(&spec.filename).unwrap();
 
-                                DatValue::KeyValue(
+                                Value::KeyValue(
                                     spec.export.to_string(),
-                                    Box::new(DatValue::List(vec![DatValue::Str(format!(
+                                    Box::new(Value::List(vec![Value::Str(format!(
                                         "list containing {} rows",
                                         file.rows_count
                                     ))])),
                                 )
                             })
                             .collect();
-                        new_value = Some(DatValue::Object(Box::new(DatValue::List(exports))));
+                        new_value = Some(Value::Object(Box::new(Value::List(exports))));
                     } else {
                         new_value = Some(self.identity());
                     }
@@ -176,19 +175,19 @@ impl TermsProcessor for TraversalContext<'_> {
                 Term::array(arr_terms) => {
                     let result = self.clone().process(&arr_terms.to_vec());
                     new_value = match result {
-                        DatValue::Empty => Some(DatValue::List(Vec::with_capacity(0))),
+                        Value::Empty => Some(Value::List(Vec::with_capacity(0))),
                         _ => Some(result),
                     };
                 }
                 Term::string(text) => {
-                    new_value = Some(DatValue::Str(text.to_string()));
+                    new_value = Some(Value::Str(text.to_string()));
                 }
-                Term::transpose => match self.identity.clone().unwrap_or(DatValue::Empty) {
-                    DatValue::List(values) => {
-                        let lists: Vec<Vec<DatValue>> = values
+                Term::transpose => match self.identity.clone().unwrap_or(Value::Empty) {
+                    Value::List(values) => {
+                        let lists: Vec<Vec<Value>> = values
                             .iter()
                             .map(|value| match value {
-                                DatValue::List(v) => v.clone(),
+                                Value::List(v) => v.clone(),
                                 rawr => panic!(format!(
                                     "transpose is only supported on lists + {:?}",
                                     rawr
@@ -200,26 +199,26 @@ impl TermsProcessor for TraversalContext<'_> {
                             .iter()
                             .fold(0u64, |max, list| u64::max(max, list.len() as u64));
 
-                        let outer: Vec<DatValue> = (0..max)
+                        let outer: Vec<Value> = (0..max)
                             .map(|i| {
                                 let inner = lists
                                     .iter()
                                     .map(|list| {
-                                        list.get(i as usize).unwrap_or(&DatValue::Empty).clone()
+                                        list.get(i as usize).unwrap_or(&Value::Empty).clone()
                                     })
                                     .collect();
-                                DatValue::List(inner)
+                                Value::List(inner)
                             })
                             .collect();
-                        new_value = Some(DatValue::List(outer));
+                        new_value = Some(Value::List(outer));
                     }
                     rawr => panic!(format!("transpose is only supported on lists - {:?}", rawr)),
                 },
                 Term::unsigned_number(value) => {
-                    new_value = Some(DatValue::U64(*value));
+                    new_value = Some(Value::U64(*value));
                 }
                 Term::signed_number(value) => {
-                    new_value = Some(DatValue::I64(*value));
+                    new_value = Some(Value::I64(*value));
                 }
                 _ => {
                     new_value = Some(self.traverse_term(&term.clone()));
@@ -232,7 +231,7 @@ impl TermsProcessor for TraversalContext<'_> {
         new_value
     }
 
-    fn traverse_term(&mut self, term: &Term) -> DatValue {
+    fn traverse_term(&mut self, term: &Term) -> Value {
         match term {
             Term::by_name(key) => {
                 self.child(key);
@@ -258,32 +257,32 @@ impl TraversalContextImpl for TraversalContext<'_> {
 
             // generate initial values
             let file = self.store.file(&spec.filename).unwrap();
-            let values: Vec<DatValue> = (0..file.rows_count)
+            let values: Vec<Value> = (0..file.rows_count)
                 .map(|i| {
-                    let kv_list: Vec<DatValue> = spec
+                    let kv_list: Vec<Value> = spec
                         .fields
                         .iter()
                         .map(move |field| {
                             let row_offset = file.rows_begin + i as usize * file.row_size;
-                            DatValue::KeyValue(
+                            Value::KeyValue(
                                 field.name.clone(),
                                 Box::new(file.read(row_offset, &field)),
                             )
                         })
                         .collect();
-                    DatValue::Object(Box::new(DatValue::List(kv_list)))
+                    Value::Object(Box::new(Value::List(kv_list)))
                 })
                 .collect();
 
             self.current_field = None;
             self.current_file = Some(&spec.filename);
-            self.identity = Some(DatValue::List(values));
+            self.identity = Some(Value::List(values));
         } else {
             self.enter_foreign();
 
-            match self.identity.clone().unwrap_or(DatValue::Empty) {
-                DatValue::Object(_) => {}
-                DatValue::Iterator(_) => {} // TODO: clean up, and provide a helpful output message "did you mean to use []?"
+            match self.identity.clone().unwrap_or(Value::Empty) {
+                Value::Object(_) => {}
+                Value::Iterator(_) => {} // TODO: clean up, and provide a helpful output message "did you mean to use []?"
                 k => panic!(format!(
                     "Can't step into a field unless it's an object or iteratable. {:?}",
                     k
@@ -311,23 +310,23 @@ impl TraversalContextImpl for TraversalContext<'_> {
         if current_field.is_some() && current_field.unwrap().is_foreign_key() {
             self.current_field = None;
 
-            let value = self.identity.clone().unwrap_or(DatValue::Empty);
+            let value = self.identity.clone().unwrap_or(Value::Empty);
             let value = match value {
-                DatValue::List(items) => DatValue::Iterator(items),
+                Value::List(items) => Value::Iterator(items),
                 _ => value,
             };
 
             let result = iterate(&value, |v| {
                 let ids: Vec<u64> = match v {
-                    DatValue::List(ids) => ids.clone(),     // TODO: yikes
-                    DatValue::Iterator(ids) => ids.clone(), // TODO: yikes
-                    DatValue::U64(id) => vec![DatValue::U64(*id)],
+                    Value::List(ids) => ids.clone(),     // TODO: yikes
+                    Value::Iterator(ids) => ids.clone(), // TODO: yikes
+                    Value::U64(id) => vec![Value::U64(*id)],
                     item => panic!(format!("Not a valid id for foreign key: {:?}", item)),
                 }
                 .iter()
                 .filter_map(|v| match v {
-                    DatValue::U64(i) => Some(*i),
-                    DatValue::List(_) => None,
+                    Value::U64(i) => Some(*i),
+                    Value::List(_) => None,
                     _ => panic!(format!("value {:?}", v)),
                 })
                 .collect();
@@ -342,20 +341,20 @@ impl TraversalContextImpl for TraversalContext<'_> {
         }
     }
 
-    fn to_iterable(&mut self) -> DatValue {
+    fn to_iterable(&mut self) -> Value {
         self.enter_foreign();
-        let value = self.identity.clone().unwrap_or(DatValue::Empty);
+        let value = self.identity.clone().unwrap_or(Value::Empty);
         let iteratable = match value {
-            DatValue::List(list) => DatValue::Iterator(list),
-            DatValue::Iterator(list) => DatValue::Iterator(list),
-            DatValue::Object(content) => {
+            Value::List(list) => Value::Iterator(list),
+            Value::Iterator(list) => Value::Iterator(list),
+            Value::Object(content) => {
                 let fields = match *content {
-                    DatValue::List(fields) => fields,
+                    Value::List(fields) => fields,
                     _ => panic!("attempt to iterate an empty object"),
                 };
-                DatValue::Iterator(fields)
+                Value::Iterator(fields)
             }
-            DatValue::Empty => DatValue::Iterator(Vec::with_capacity(0)),
+            Value::Empty => Value::Iterator(Vec::with_capacity(0)),
             obj => panic!(format!(
                 "unable to iterate, should i support this? {:?}",
                 obj
@@ -365,52 +364,52 @@ impl TraversalContextImpl for TraversalContext<'_> {
     }
 
     fn slice(&mut self, from: usize, to: usize) {
-        let value = self.identity.clone().unwrap_or(DatValue::Empty);
+        let value = self.identity.clone().unwrap_or(Value::Empty);
         match value {
-            DatValue::List(list) => {
-                self.identity = Some(DatValue::List(
+            Value::List(list) => {
+                self.identity = Some(Value::List(
                     list[from..usize::min(to, list.len())].to_vec(),
                 ))
             }
-            DatValue::Str(str) => self.identity = Some(DatValue::Str(str[from..to].to_string())),
+            Value::Str(str) => self.identity = Some(Value::Str(str[from..to].to_string())),
             _ => panic!("attempt to index non-indexable value {:?}", value),
         }
     }
 
     fn index(&mut self, index: usize) {
-        let value = self.identity.clone().unwrap_or(DatValue::Empty);
+        let value = self.identity.clone().unwrap_or(Value::Empty);
         match value {
-            DatValue::List(list) => match list.get(index) {
+            Value::List(list) => match list.get(index) {
                 Some(value) => self.identity = Some(value.clone()),
                 None => panic!("attempt to index outside list"),
             },
-            DatValue::Str(str) => match str.chars().nth(index) {
-                Some(value) => self.identity = Some(DatValue::Str(value.to_string())),
+            Value::Str(str) => match str.chars().nth(index) {
+                Some(value) => self.identity = Some(Value::Str(value.to_string())),
                 None => panic!("attempt to index outside string"),
             },
             _ => panic!("attempt to index non-indexable value {:?}", value),
         }
     }
 
-    fn identity(&self) -> DatValue {
-        self.identity.clone().unwrap_or(DatValue::Empty)
+    fn identity(&self) -> Value {
+        self.identity.clone().unwrap_or(Value::Empty)
     }
 
-    fn value(&mut self) -> DatValue {
+    fn value(&mut self) -> Value {
         let current = self.current_file.unwrap();
         let spec = self.store.spec(current).unwrap();
         let file = self.store.file(current).unwrap();
 
-        let identity = self.identity.clone().unwrap_or(DatValue::Empty);
+        let identity = self.identity.clone().unwrap_or(Value::Empty);
         match identity {
             // TODO: extract to function
-            DatValue::Object(entries) => {
+            Value::Object(entries) => {
                 let v = match *entries {
-                    DatValue::List(list) => {
-                        let values: Vec<DatValue> = list
+                    Value::List(list) => {
+                        let values: Vec<Value> = list
                             .iter()
                             .filter_map(|field| match field {
-                                DatValue::KeyValue(key, value) => {
+                                Value::KeyValue(key, value) => {
                                     if key == &self.current_field.clone().unwrap() {
                                         Some(*value.clone())
                                     } else {
@@ -421,38 +420,38 @@ impl TraversalContextImpl for TraversalContext<'_> {
                             })
                             .collect();
 
-                        values.first().unwrap_or(&DatValue::Empty).clone()
+                        values.first().unwrap_or(&Value::Empty).clone()
                     }
-                    DatValue::KeyValue(key, value) => {
+                    Value::KeyValue(key, value) => {
                         if key == self.current_field.clone().unwrap() {
                             *value.clone()
                         } else {
-                            DatValue::Empty
+                            Value::Empty
                         }
                     }
                     _ => panic!(format!("failed to extract value from kv! {:?}", entries)),
                 };
                 return v.clone();
             }
-            DatValue::Iterator(values) => {
-                let result: Vec<DatValue> = values
+            Value::Iterator(values) => {
+                let result: Vec<Value> = values
                     .iter()
                     .map(|value| match value {
-                        DatValue::KeyValue(k, v) => {
+                        Value::KeyValue(k, v) => {
                             if self.current_field.clone().unwrap() == k.as_str() {
                                 *v.clone()
                             } else {
-                                DatValue::Empty
+                                Value::Empty
                             }
                         }
-                        DatValue::Object(elements) => {
+                        Value::Object(elements) => {
                             let obj = match *elements.clone() {
-                                DatValue::List(fields) => fields,
+                                Value::List(fields) => fields,
                                 _ => panic!(format!("uhm: {:?}", elements)),
                             };
                             obj.iter()
                                 .filter_map(|field| match field {
-                                    DatValue::KeyValue(k, v) => {
+                                    Value::KeyValue(k, v) => {
                                         if self.current_field.clone().unwrap() == k.as_str() {
                                             Some(*v.clone())
                                         } else {
@@ -461,9 +460,9 @@ impl TraversalContextImpl for TraversalContext<'_> {
                                     }
                                     asd => panic!(format!("what happened? {:?}", asd)),
                                 })
-                                .collect::<Vec<DatValue>>()
+                                .collect::<Vec<Value>>()
                                 .first()
-                                .unwrap_or(&DatValue::Empty)
+                                .unwrap_or(&Value::Empty)
                                 .clone()
                         }
                         val => panic!(format!(
@@ -473,25 +472,25 @@ impl TraversalContextImpl for TraversalContext<'_> {
                     })
                     .collect();
 
-                return DatValue::List(result);
+                return Value::List(result);
             }
-            DatValue::U64(i) => {
+            Value::U64(i) => {
                 // TODO: extract to function
-                let kv_list: Vec<DatValue> = spec
+                let kv_list: Vec<Value> = spec
                     .fields
                     .iter()
                     .map(move |field| {
                         let row_offset = file.rows_begin + i as usize * file.row_size;
-                        DatValue::KeyValue(
+                        Value::KeyValue(
                             field.name.clone(),
                             Box::new(file.read(row_offset, &field)),
                         )
                     })
                     .collect();
 
-                return DatValue::Object(Box::new(DatValue::List(kv_list)));
+                return Value::Object(Box::new(Value::List(kv_list)));
             }
-            _ => return DatValue::Empty,
+            _ => return Value::Empty,
         };
     }
 
@@ -505,37 +504,37 @@ impl TraversalContextImpl for TraversalContext<'_> {
         }
     }
 
-    fn rows_from(&self, filepath: &str, indices: &[u64]) -> DatValue {
+    fn rows_from(&self, filepath: &str, indices: &[u64]) -> Value {
         let foreign_spec = self.store.spec(filepath).unwrap();
         let file = self.store.file(filepath).unwrap();
 
-        let values: Vec<DatValue> = indices
+        let values: Vec<Value> = indices
             .iter()
             .map(|i| {
-                let kv_list: Vec<DatValue> = foreign_spec
+                let kv_list: Vec<Value> = foreign_spec
                     .fields
                     .iter()
                     .map(move |field| {
                         let row_offset =
                             file.rows_begin + usize::try_from(*i).unwrap() * file.row_size;
-                        DatValue::KeyValue(
+                        Value::KeyValue(
                             field.name.clone(),
                             Box::new(file.read(row_offset, &field)),
                         )
                     })
                     .collect();
-                DatValue::Object(Box::new(DatValue::List(kv_list)))
+                Value::Object(Box::new(Value::List(kv_list)))
             })
             .collect();
 
         if values.len() > 1 {
-            DatValue::List(values)
+            Value::List(values)
         } else {
-            values.first().unwrap_or(&DatValue::Empty).clone()
+            values.first().unwrap_or(&Value::Empty).clone()
         }
     }
     // current value can be large datasets
-    fn clone_with_value(&self, value: Option<DatValue>) -> TraversalContext {
+    fn clone_with_value(&self, value: Option<Value>) -> TraversalContext {
         TraversalContext {
             store: self.store,
             variables: self.variables.clone(),
@@ -547,25 +546,25 @@ impl TraversalContextImpl for TraversalContext<'_> {
 }
 
 // TODO: move this somewhere else
-fn iterate<F>(value: &DatValue, action: F) -> DatValue
+fn iterate<F>(value: &Value, action: F) -> Value
 where
-    F: Fn(&DatValue) -> Option<DatValue>,
+    F: Fn(&Value) -> Option<Value>,
 {
     match value {
-        DatValue::Iterator(elements) => {
-            DatValue::List(elements.iter().filter_map(|e| action(e)).collect())
+        Value::Iterator(elements) => {
+            Value::List(elements.iter().filter_map(|e| action(e)).collect())
         }
         _ => action(value).expect("non-iterable must return something"),
     }
 }
 
-fn reduce<F>(value: &DatValue, action: &mut F) -> DatValue
+fn reduce<F>(value: &Value, action: &mut F) -> Value
 where
-    F: FnMut(&DatValue) -> Option<DatValue>,
+    F: FnMut(&Value) -> Option<Value>,
 {
-    let mut result = DatValue::Empty;
+    let mut result = Value::Empty;
     match value {
-        DatValue::Iterator(elements) => {
+        Value::Iterator(elements) => {
             elements.iter().for_each(|e| {
                 result = action(e).expect("reduce operation must return a value");
             });

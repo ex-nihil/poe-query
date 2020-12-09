@@ -1,10 +1,10 @@
 use byteorder::{LittleEndian, ReadBytesExt};
 use core::panic;
-use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 use std::io::Cursor;
 
 use super::dat_spec::FieldSpec;
 use super::util;
+use super::value::Value;
 
 const DATA_SECTION_START: &[u8; 8] = &[0xBB; 8];
 
@@ -15,84 +15,6 @@ pub struct DatFile {
     pub data_offset: usize,
     pub rows_count: u32,
     pub row_size: usize,
-}
-
-#[derive(Debug, Clone, PartialOrd, PartialEq)]
-pub enum DatValue {
-    Str(String),
-    Byte(u8),
-    U64(u64),
-    I64(i64),
-    List(Vec<DatValue>),
-    Iterator(Vec<DatValue>),
-    KeyValue(String, Box<DatValue>),
-    Object(Box<DatValue>),
-    Bool(bool),
-    Empty,
-}
-
-impl Serialize for DatValue
-{
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match self {
-            DatValue::Object(content) => {
-                if let DatValue::List(list) = *content.clone() {
-                    let mut map = serializer.serialize_map(Some(list.len()))?;
-                    for value in list {
-                        match value {
-                            DatValue::KeyValue(k, v) => map.serialize_entry(k.as_str(),&*v)?,
-                            _ => panic!("object contained an unexpected value"),
-                        }
-                    }
-                    map.end()
-                } else if let DatValue::KeyValue(k, v) = *content.clone() {
-                    let mut map = serializer.serialize_map(Some(1))?;
-                    map.serialize_entry(k.as_str(),&*v)?;
-                    map.end()
-                } else {
-                    panic!("object contained an unexpected value");
-                }
-            },
-            DatValue::List(list) => {
-                let mut seq = serializer.serialize_seq(Some(list.len()))?;
-                for value in list {
-                    seq.serialize_element(value)?;
-                }
-                seq.end()
-            },
-            DatValue::Iterator(list) => {
-                let mut seq = serializer.serialize_seq(Some(list.len()))?;
-                for value in list {
-                    seq.serialize_element(value)?;
-                }
-                seq.end()
-            }
-            DatValue::Str(text) => {
-                serializer.serialize_str(text)
-            }
-            DatValue::KeyValue(_, value) => {
-                value.serialize(serializer)
-            }
-            DatValue::Byte(value) => {
-                serializer.serialize_u8(*value)
-            }
-            DatValue::U64(value) => {
-                serializer.serialize_u64(*value)
-            }
-            DatValue::I64(value) => {
-                serializer.serialize_i64(*value)
-            }
-            DatValue::Bool(value) => {
-                serializer.serialize_bool(*value)
-            }
-            DatValue::Empty => {
-                serializer.serialize_unit()
-            }
-        }
-    }
 }
 
 impl<'a> DatFile {
@@ -118,11 +40,11 @@ impl<'a> DatFile {
 }
 
 pub trait DatFileRead {
-    fn read(&self, offset: usize, field: &FieldSpec) -> DatValue;
+    fn read(&self, offset: usize, field: &FieldSpec) -> Value;
 }
 
 impl DatFileRead for DatFile {
-    fn read(&self, offset: usize, field: &FieldSpec) -> DatValue {
+    fn read(&self, offset: usize, field: &FieldSpec) -> Value {
         let mut c = Cursor::new(self.raw.as_slice());
         c.set_position(offset as u64 + field.offset);
         read_data_field(&mut c, self, field.datatype.as_str())
@@ -130,7 +52,7 @@ impl DatFileRead for DatFile {
 }
 
 // TODO: cleanup / refactor
-pub fn read_data_field(cursor: &mut Cursor<&[u8]>, dat: &DatFile, field_type: &str) -> DatValue {
+pub fn read_data_field(cursor: &mut Cursor<&[u8]>, dat: &DatFile, field_type: &str) -> Value {
     // variable length data (ref and list) is all located in the data section
     if field_type.starts_with("list|") {
         let length = cursor.read_u32::<LittleEndian>().unwrap();
@@ -150,7 +72,7 @@ pub fn read_data_field(cursor: &mut Cursor<&[u8]>, dat: &DatFile, field_type: &s
         let list = (0..length)
             .map(|_| read_value(&mut list_cursor, elem_type.as_str()))
             .collect();
-        DatValue::List(list)
+        Value::List(list)
     } else if field_type.starts_with("ref|") {
         let remainder: String = field_type.chars().skip(4).collect();
         let data_ref = cursor.read_u32::<LittleEndian>().unwrap();
@@ -169,7 +91,7 @@ pub fn read_data_field(cursor: &mut Cursor<&[u8]>, dat: &DatFile, field_type: &s
     }
 }
 
-fn read_value<'a>(cursor: &mut Cursor<&[u8]>, tag: &str) -> DatValue {
+fn read_value<'a>(cursor: &mut Cursor<&[u8]>, tag: &str) -> Value {
     return match tag {
         "bool" => read_bool(cursor),
         "u8" => read_u8(cursor),
@@ -177,40 +99,40 @@ fn read_value<'a>(cursor: &mut Cursor<&[u8]>, tag: &str) -> DatValue {
         "i32" => read_i32(cursor),
         "ptr" => read_u64(cursor),
         "u64" => read_u64(cursor),
-        "string" => DatValue::Str(read_utf16(cursor)),
+        "string" => Value::Str(read_utf16(cursor)),
         value => panic!("Unsupported type in specification. {}", value),
     };
 }
 
-pub fn read_bool<'a>(cursor: &mut Cursor<&[u8]>) -> DatValue {
+pub fn read_bool<'a>(cursor: &mut Cursor<&[u8]>) -> Value {
     return match cursor.read_u8() {
-        Ok(value) => DatValue::Bool(value != 0),
+        Ok(value) => Value::Bool(value != 0),
         _ => panic!("Unable to read bool"),
     };
 }
 
-pub fn read_u8<'a>(cursor: &mut Cursor<&[u8]>) -> DatValue {
+pub fn read_u8<'a>(cursor: &mut Cursor<&[u8]>) -> Value {
     return match cursor.read_u8() {
-        Ok(value) => DatValue::Byte(value),
+        Ok(value) => Value::Byte(value),
         _ => panic!("Unable to read u8"),
     };
 }
 
-pub fn read_u32<'a>(cursor: &mut Cursor<&[u8]>) -> DatValue {
+pub fn read_u32<'a>(cursor: &mut Cursor<&[u8]>) -> Value {
     return match cursor.read_u32::<LittleEndian>() {
         Ok(value) => u32_to_enum(value),
         _ => panic!("Unable to read u32"),
     };
 }
 
-pub fn read_i32<'a>(cursor: &mut Cursor<&[u8]>) -> DatValue {
+pub fn read_i32<'a>(cursor: &mut Cursor<&[u8]>) -> Value {
     return match cursor.read_i32::<LittleEndian>() {
         Ok(value) => i32_to_enum(value),
         _ => panic!("Unable to read u32"),
     };
 }
 
-pub fn read_u64<'a>(cursor: &mut Cursor<&[u8]>) -> DatValue {
+pub fn read_u64<'a>(cursor: &mut Cursor<&[u8]>) -> Value {
     return match cursor.read_u64::<LittleEndian>() {
         Ok(value) => u64_to_enum(value),
         _ => panic!("Unable to read u64"),
@@ -230,21 +152,21 @@ pub fn read_utf16<'a>(cursor: &mut Cursor<&[u8]>) -> String {
     return String::from_utf16(&raw).expect("Decode a UTF-16 String");
 }
 
-fn u64_to_enum(value: u64) -> DatValue {
+fn u64_to_enum(value: u64) -> Value {
     if value == 0xFEFEFEFEFEFEFEFE {
-        return DatValue::Empty;
+        return Value::Empty;
     }
-    return DatValue::U64(value);
+    return Value::U64(value);
 }
 
-fn u32_to_enum(value: u32) -> DatValue {
+fn u32_to_enum(value: u32) -> Value {
     if value == 0xFEFEFEFE {
-        return DatValue::Empty;
+        return Value::Empty;
     }
-    return DatValue::U64(value as u64);
+    return Value::U64(value as u64);
 }
 
-fn i32_to_enum(value: i32) -> DatValue {
+fn i32_to_enum(value: i32) -> Value {
     // TODO: check for empty signal
-    return DatValue::I64(value as i64);
+    return Value::I64(value as i64);
 }

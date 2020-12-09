@@ -232,7 +232,6 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
             }
             Term::slice(from, to)
         }
-        Rule::pipe => Term::pipe,
         Rule::identity => Term::identity,
         Rule::comma => Term::comma,
         Rule::transpose => Term::transpose,
