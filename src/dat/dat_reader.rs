@@ -93,7 +93,7 @@ impl DatContainerImpl for DatContainer {
             variables: HashMap::new(),
             current_field: None,
             current_file: None,
-            current_value: None,
+            identity: None,
         }
     }
 }
