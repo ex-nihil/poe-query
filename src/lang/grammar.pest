@@ -39,6 +39,7 @@ select = { "select(" ~ bool_expression ~ ")" }
 transpose = { "transpose" }
 reduce_init_value = { (datatypes | array_construction | object_construct) ~ ";" }
 reduce = { "reduce" ~ (!assign_variable ~ query)+ ~ assign_variable ~ "(" ~ reduce_init_value ~ expr* ~ ")" }
+map = { "map(" ~ expr+ ~ ")"}
 
 // comparisons
 equal = { "==" }
@@ -58,7 +59,8 @@ array_construction = { "[" ~ query* ~ "]" }
 
 optional = { "?" }
 
-filter = _{ reduce | assign_variable | variable | transpose | select | iterator | field | index_reverse | index | slice | identity }
+functions = _ { map | reduce | transpose }
+filter = _{ functions | assign_variable | variable | select | iterator | field | index_reverse | index | slice | identity }
 query = _{ operator? ~ (datatypes | filter | array_construction | object_construct) }
 
 pipe = { "|" }

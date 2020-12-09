@@ -132,6 +132,12 @@ impl TermsProcessor for TraversalContext<'_> {
                     });
                     new_value = Some(result);
                 }
+                Term::map(terms) => {
+                    let result = iterate(&self.to_iterable(), |v| {
+                        Some(self.clone_with_value(Some(v.clone())).process(terms))
+                    });
+                    new_value = Some(result);
+                }
                 Term::object(obj_terms) => {
                     if let Some(value) = &self.identity {
                         new_value = Some(iterate(value, |v| {

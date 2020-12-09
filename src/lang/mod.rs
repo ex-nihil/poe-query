@@ -25,6 +25,7 @@ pub enum Term {
     get_variable(String),
     unsigned_number(u64),
     reduce(Vec<Term>, Box<Term>, Vec<Term>),
+    map(Vec<Term>),
     signed_number(i64),
     transpose,
     identity,
@@ -118,6 +119,15 @@ fn build_ast(pair: pest::iterators::Pair<Rule>, dst: &mut Vec<Term>) {
                 }
             }
             dst.push(Term::reduce(outer_terms, Box::new(initial), inner_terms));
+        }
+        Rule::map => {
+            let inner = pair.into_inner();
+
+            let mut terms = Vec::new();
+            for next in inner {
+                build_ast(next, &mut terms);
+            }
+            dst.push(Term::map(terms));
         }
         _ => {
             dst.push(to_term(pair));
