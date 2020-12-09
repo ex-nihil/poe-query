@@ -38,7 +38,6 @@ pub trait TermsProcessor {
 }
 
 impl TermsProcessor for TraversalContext<'_> {
-
     fn process(&mut self, parsed_terms: &Vec<Term>) -> DatValue {
         let parts = parsed_terms.split(|term| match term {
             Term::comma => true,
@@ -113,25 +112,15 @@ impl TermsProcessor for TraversalContext<'_> {
                     } else {
                         let initial = self.traverse_terms_inner(&[*init.clone()]);
                         let variable = vars.first().unwrap().as_str();
-                        let value = self.variables.get(variable).unwrap_or(&DatValue::Empty);
+                        let value = self.variables.get(variable).unwrap_or(&DatValue::Empty).clone();
 
-                        match value {
-                            DatValue::Iterator(elements) => {
-                                //elements.iter().fold(initial, |acc, x| acc + x);
-                            }
-                            _ => {}
-                        };
-
-                        panic!("reduce not implemented :(");
-                        iterate(value, |_| {
-                            //let sum = a.iter().fold(0, |acc, x| acc + x);
-                            // TODO: initial value and current element must both be available! :(
-
-                            //let initial = self.traverse_terms_inner(&[*init.clone()]);
-                            //let result = self.clone_with_value(initial).traverse_terms(terms);
-                            //new_value = Some(result);
-                            None
+                        self.identity = initial;
+                        let result = reduce(&value, &mut |v| {
+                            self.variables.insert(variable.to_string(), v.clone());
+                            self.identity = Some(self.process(terms));
+                            self.identity.clone()
                         });
+                        new_value = Some(result);
                     }
                 }
                 Term::object(obj_terms) => {
@@ -373,9 +362,7 @@ impl TraversalContextImpl for TraversalContext<'_> {
                     list[from..usize::min(to, list.len())].to_vec(),
                 ))
             }
-            DatValue::Str(str) => {
-                self.identity = Some(DatValue::Str(str[from..to].to_string()))
-            }
+            DatValue::Str(str) => self.identity = Some(DatValue::Str(str[from..to].to_string())),
             _ => panic!("attempt to index non-indexable value {:?}", value),
         }
     }
@@ -560,4 +547,22 @@ where
         }
         _ => action(value).expect("non-iterable must return something"),
     }
+}
+
+fn reduce<F>(value: &DatValue, action: &mut F) -> DatValue
+where
+    F: FnMut(&DatValue) -> Option<DatValue>,
+{
+    let mut result = DatValue::Empty;
+    match value {
+        DatValue::Iterator(elements) => {
+            elements.iter().for_each(|e| {
+                result = action(e).expect("reduce operation must return a value");
+            });
+        }
+        _ => {
+            result = action(value).expect("reduce operation must return a value");
+        }
+    }
+    result
 }
