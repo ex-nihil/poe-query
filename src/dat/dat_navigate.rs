@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
 
-use super::super::lang::{Compare, Term};
+use super::super::lang::{Compare, Term, Operation};
 use super::dat_file::DatFileRead;
 use super::dat_file::{DatFile, DatValue};
 use super::dat_reader::DatStore;
@@ -85,8 +85,18 @@ impl TermsProcessor for TraversalContext<'_> {
                     });
                     new_value = Some(result);
                 }
+                Term::noop => {}
                 Term::iterator => {
                     new_value = Some(self.to_iterable());
+                }
+                Term::calculate(lhs, op, rhs) => {
+                    let lhs_result = self.clone().traverse_terms_inner(lhs);
+                    let rhs_result = self.clone().traverse_terms_inner(rhs);
+                    let result = match op { // TODO: add operation support on the different types
+                        Operation::add => DatValue::List(vec![lhs_result.unwrap(), rhs_result.unwrap()]),
+                        _ => DatValue::Empty,
+                    };
+                    new_value = Some(result);
                 }
                 Term::set_variable(name) => {
                     self.variables

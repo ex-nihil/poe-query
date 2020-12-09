@@ -2,14 +2,14 @@
 WHITESPACE = _{ " " }
 identity = { "."{1} }
 dollar = _{ "$" }
+minus = { "-" }
 
 identifier = { (ASCII_ALPHANUMERIC | "_")+ }
-digits = { ASCII_DIGIT+ }
+digits = @{ ASCII_DIGIT+ }
 
 slice_from = { digits+ }
 slice_to = { digits+ }
 
-recurse = { ".." }
 index_reverse = { &ANY ~ "[-" ~ digits+ ~ "]" }
 index = { &ANY ~ "[" ~ digits+ ~ "]" }
 slice = { &ANY ~ "[" ~ slice_from? ~ ":" ~ slice_to? ~ "]" }
@@ -19,7 +19,7 @@ string = { (!"\"" ~ ANY)+ }
 number = _{ unsigned_number | signed_number }
 unsigned_number = { "(unsigned)"? ~ digits+ }
 signed_number = { (("(signed)" ~ minus) | ("(signed)" | minus)) ~ digits+ }
-quoted_string = _{ "\"" ~ string ~ "\"" }
+quoted_string = _{ ("\"" ~ string ~ "\"") | ("'" ~ string ~ "'") }
 datatypes = _{ quoted_string | number }
 
 // assignment
@@ -27,14 +27,18 @@ variable = ${ dollar ~ identifier }
 assign_variable = { "as" ~ variable }
 
 // arithmetic
-plus  = { "+" }
-minus = { "-" }
+operation = { add | subtract | multiply | divide | power }
+    add      = { "+" }
+    subtract = { "-" }
+    multiply = { "*" }
+    divide   = { "/" }
+    power    = { "^" }
 
 // functions
 select = { "select(" ~ bool_expression ~ ")" }
 transpose = { "transpose" }
 reduce_init_value = { datatypes ~ ";" }
-reduce = { "reduce" ~ (!assign_variable ~ filter_with_op)+ ~ assign_variable ~ "(" ~ reduce_init_value ~ filter_with_op* ~ ")" }
+reduce = { "reduce" ~ (!assign_variable ~ query)+ ~ assign_variable ~ "(" ~ reduce_init_value ~ expr* ~ ")" }
 
 // comparisons
 equal = { "==" }
@@ -42,25 +46,30 @@ not_equal = { "!=" }
 less_than = { "<" }
 greater_than = { ">" }
 compare = { equal | not_equal | less_than | greater_than }
-bool_expression = _{ filter_with_op+ ~ compare ~ filter_with_op+ }
+bool_expression = _{ query+ ~ compare ~ query+ }
+
 
 field = { identifier }
 key = { identifier ~ ":" }
 
-named_query = { key ~ (!("," ~ &key) ~ filter_with_op)+ }
+named_query = { key ~ (!("," ~ &key) ~ query)+ }
 object_construct = { "{" ~ (named_query ~ operator?)+ ~ "}" }
-array_construction = { "[" ~ filter_with_op* ~ "]" }
+array_construction = { "[" ~ query* ~ "]" }
 
 optional = { "?" }
 
-query = { filter_with_op+ }
-
-filter = _{ reduce | assign_variable | variable | transpose | select | iterator | recurse | identity | field | index_reverse | index | slice }
-filter_with_op = _{ operator? ~ (datatypes | filter | array_construction | object_construct) }
+filter = _{ reduce | assign_variable | variable | transpose | select | iterator | field | index_reverse | index | slice | identity }
+query = _{ operator? ~ (datatypes | filter | array_construction | object_construct) }
 
 pipe = { "|" }
 comma = { "," }
 
 operator = _{ pipe | comma }
 
-program = _{ SOI ~ filter_with_op+ }
+
+expr = { term ~ (operation ~ term)* }
+term = _{ query | "(" ~ expr ~ ")" } // precedence
+
+program = _{ SOI ~ expr+}
+
+// .test[] + .ok, .thefuck + "ok"

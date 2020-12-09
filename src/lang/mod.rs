@@ -16,6 +16,7 @@ pub enum Term {
     object(Vec<Term>),
     array(Vec<Term>),
     select(Vec<Term>, Compare, Vec<Term>),
+    calculate(Vec<Term>, Operation, Vec<Term>),
     iterator,
     equal,
     pipe,
@@ -40,6 +41,15 @@ pub enum Compare {
     greater_than,
 }
 
+#[derive(Debug, PartialEq, Clone)]
+#[allow(non_camel_case_types)]
+pub enum Operation {
+    add,
+    subtract,
+    multiply,
+    divide,
+}
+
 pub fn parse(source: &str) -> Vec<Term> {
     let result = PluckParser::parse(Rule::program, source);
     let pairs = match result {
@@ -57,10 +67,38 @@ pub fn parse(source: &str) -> Vec<Term> {
     return output;
 }
 
-// TODO: this shit must be moved to navigator so it can store objects created as current value
+// TODO: this is getting very unwieldy, refactor to something more ergonomic
 fn build_ast(pair: pest::iterators::Pair<Rule>, dst: &mut Vec<Term>) {
     match pair.as_rule() {
-        Rule::pipe => {}
+        Rule::expr => {
+            let inner = pair.into_inner();
+            let mut lhs = Vec::new();
+            let mut rhs = Vec::new();
+            let mut current = &mut lhs;
+            let mut operation = None;
+            for next in inner {
+                match next.as_rule() {
+                    Rule::operation => {
+                        operation = match next.into_inner().next().unwrap().as_rule() {
+                            Rule::add => Some(Operation::add),
+                            Rule::subtract => Some(Operation::subtract),
+                            Rule::multiply => Some(Operation::multiply),
+                            Rule::divide => Some(Operation::divide),
+                            _ => panic!("Unimplemented operation"),
+                        };
+                        current = &mut rhs;
+                    }
+                    _ => {
+                        build_ast(next, current);
+                    },
+                }
+            }
+            if let Some(op) = operation {
+                dst.push(Term::calculate(lhs, op, rhs));
+            } else {
+                lhs.iter().for_each(|t| dst.push(t.clone()));
+            }
+        }
         Rule::reduce => {
             let inner = pair.into_inner();
 
@@ -77,19 +115,24 @@ fn build_ast(pair: pest::iterators::Pair<Rule>, dst: &mut Vec<Term>) {
                         if outside {
                             dst.push(to_term(next));
                         } else {
-                            inner_terms.push(to_term(next));
+                            build_ast(next, &mut inner_terms);
                         }
                     }
                 }
             }
             dst.push(Term::reduce(Box::new(initial), inner_terms));
         }
-        _ => dst.push(to_term(pair)),
+        _ => {
+            dst.push(to_term(pair));
+        },
     }
 }
 
 fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
     match pair.as_rule() {
+        Rule::pipe => {
+            Term::noop
+        },
         Rule::field => {
             let ident = pair.as_span().as_str().to_string();
             Term::by_name(ident.to_string())
@@ -104,7 +147,6 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
             Term::set_variable(text.to_string())
         }
         Rule::variable => {
-            println!("{:?}", pair);
             let mut inner = pair.into_inner();
             let text = inner.next().unwrap().as_str();
             Term::get_variable(text.to_string())
