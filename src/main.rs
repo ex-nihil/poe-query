@@ -4,8 +4,8 @@ extern crate pest;
 extern crate pest_derive;
 
 mod dat;
-use dat::dat_navigate::TermsProcessor;
-use dat::dat_reader::{DatContainer, DatContainerImpl};
+use dat::navigate::TermsProcessor;
+use dat::reader::{DatContainer, DatContainerImpl};
 use std::time::Instant;
 
 pub mod lang;

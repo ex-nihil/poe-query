@@ -3,9 +3,9 @@ use std::fs;
 
 use poe_bundle_reader::reader::{BundleReader, BundleReaderRead};
 
-use super::dat_file::DatFile;
-use super::dat_navigate::TraversalContext;
-use super::dat_spec::FileSpec;
+use super::file::DatFile;
+use super::navigate::TraversalContext;
+use super::specification::FileSpec;
 
 pub struct DatContainer {
     files: HashMap<String, DatFile>,

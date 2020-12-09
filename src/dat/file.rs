@@ -2,7 +2,7 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use core::panic;
 use std::io::Cursor;
 
-use super::dat_spec::FieldSpec;
+use super::specification::FieldSpec;
 use super::util;
 use super::value::Value;
 

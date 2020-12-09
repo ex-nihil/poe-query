@@ -2,10 +2,10 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 
 use super::super::lang::{Compare, Term, Operation};
-use super::dat_file::DatFileRead;
-use super::dat_reader::DatStore;
-use super::dat_reader::DatStoreImpl;
-use super::dat_spec::FieldSpecImpl;
+use super::file::DatFileRead;
+use super::reader::DatStore;
+use super::reader::DatStoreImpl;
+use super::specification::FieldSpecImpl;
 use super::value::Value;
 
 #[derive(Debug)]
