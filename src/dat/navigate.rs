@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
 
-use super::super::lang::{Compare, Term, Operation};
+use super::super::lang::{Compare, Operation, Term};
 use super::file::DatFileRead;
 use super::reader::DatStore;
 use super::reader::DatStoreImpl;
@@ -91,8 +91,9 @@ impl TermsProcessor for TraversalContext<'_> {
                 Term::calculate(lhs, op, rhs) => {
                     let lhs_result = self.clone().traverse_terms_inner(lhs);
                     let rhs_result = self.clone().traverse_terms_inner(rhs);
-                    let result = match op { // TODO: add operation support on the different types
-                        Operation::add => Value::List(vec![lhs_result.unwrap(), rhs_result.unwrap()]),
+                    let result = match op {
+                        // TODO: add operation support on the different types
+                        Operation::add => lhs_result.unwrap() + rhs_result.unwrap(),
                         _ => Value::Empty,
                     };
                     new_value = Some(result);
@@ -104,33 +105,32 @@ impl TermsProcessor for TraversalContext<'_> {
                 Term::get_variable(name) => {
                     new_value = Some(self.variables.get(name).unwrap_or(&Value::Empty).clone());
                 }
-                Term::reduce(init, terms) => {
+                Term::reduce(outer_terms, init, terms) => {
                     // seach for variables
-                    let vars: Vec<&String> = terms
+                    let vars: Vec<&String> = outer_terms
                         .iter()
                         .filter_map(|term| match term {
-                            Term::get_variable(variable) => Some(variable),
+                            Term::set_variable(variable) => Some(variable),
                             _ => None,
                         })
                         .collect();
+                    self.traverse_terms_inner(outer_terms);
 
-                    if vars.is_empty() {
-                        let initial = self.traverse_terms_inner(&[*init.clone()]);
-                        let result = self.clone_with_value(initial).process(terms);
-                        new_value = Some(result);
-                    } else {
-                        let initial = self.traverse_terms_inner(&[*init.clone()]);
-                        let variable = vars.first().unwrap().as_str();
-                        let value = self.variables.get(variable).unwrap_or(&Value::Empty).clone();
+                    let initial = self.traverse_terms_inner(&[*init.clone()]);
+                    let variable = vars.first().unwrap().as_str();
+                    let value = self
+                        .variables
+                        .get(variable)
+                        .unwrap_or(&Value::Empty)
+                        .clone();
 
-                        self.identity = initial;
-                        let result = reduce(&value, &mut |v| {
-                            self.variables.insert(variable.to_string(), v.clone());
-                            self.identity = Some(self.process(terms));
-                            self.identity.clone()
-                        });
-                        new_value = Some(result);
-                    }
+                    self.identity = initial;
+                    let result = reduce(&value, &mut |v| {
+                        self.variables.insert(variable.to_string(), v.clone());
+                        self.identity = Some(self.process(terms));
+                        self.identity.clone()
+                    });
+                    new_value = Some(result);
                 }
                 Term::object(obj_terms) => {
                     if let Some(value) = &self.identity {
@@ -367,9 +367,7 @@ impl TraversalContextImpl for TraversalContext<'_> {
         let value = self.identity.clone().unwrap_or(Value::Empty);
         match value {
             Value::List(list) => {
-                self.identity = Some(Value::List(
-                    list[from..usize::min(to, list.len())].to_vec(),
-                ))
+                self.identity = Some(Value::List(list[from..usize::min(to, list.len())].to_vec()))
             }
             Value::Str(str) => self.identity = Some(Value::Str(str[from..to].to_string())),
             _ => panic!("attempt to index non-indexable value {:?}", value),
@@ -481,10 +479,7 @@ impl TraversalContextImpl for TraversalContext<'_> {
                     .iter()
                     .map(move |field| {
                         let row_offset = file.rows_begin + i as usize * file.row_size;
-                        Value::KeyValue(
-                            field.name.clone(),
-                            Box::new(file.read(row_offset, &field)),
-                        )
+                        Value::KeyValue(field.name.clone(), Box::new(file.read(row_offset, &field)))
                     })
                     .collect();
 
@@ -517,10 +512,7 @@ impl TraversalContextImpl for TraversalContext<'_> {
                     .map(move |field| {
                         let row_offset =
                             file.rows_begin + usize::try_from(*i).unwrap() * file.row_size;
-                        Value::KeyValue(
-                            field.name.clone(),
-                            Box::new(file.read(row_offset, &field)),
-                        )
+                        Value::KeyValue(field.name.clone(), Box::new(file.read(row_offset, &field)))
                     })
                     .collect();
                 Value::Object(Box::new(Value::List(kv_list)))

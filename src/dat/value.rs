@@ -1,3 +1,4 @@
+use std::ops;
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 
 #[derive(Debug, Clone, PartialOrd, PartialEq)]
@@ -12,6 +13,76 @@ pub enum Value {
     Object(Box<Value>),
     Bool(bool),
     Empty,
+}
+
+impl ops::Add<Value> for Value {
+    type Output = Value;
+
+    fn add(self, _rhs: Value) -> Value {
+        let result = match self {
+            Value::Str(lhs) => {
+                if let Value::Str(rhs) = _rhs {
+                    Value::Str(format!("{}{}", lhs, rhs))
+                } else {
+                    panic!("operations requires both sides to be of same type");
+                }
+            }
+            Value::U64(lhs) => {
+                if let Value::U64(rhs) = _rhs {
+                    Value::U64(lhs + rhs)
+                } else {
+                    panic!("operations requires both sides to be of same type");
+                }
+            }
+            Value::I64(lhs) => {
+                if let Value::I64(rhs) = _rhs {
+                    Value::I64(lhs + rhs)
+                } else {
+                    panic!("operations requires both sides to be of same type");
+                }
+            }
+            Value::Byte(lhs) => {
+                if let Value::Byte(rhs) = _rhs {
+                    Value::Byte(lhs + rhs)
+                } else {
+                    panic!("operations requires both sides to be of same type");
+                }
+            }
+            Value::List(lhs) => {
+                println!("RHS: {:?} LHS: {:?}", lhs, _rhs);
+                if let Value::List(rhs) = _rhs {
+                    Value::List([&lhs[..], &rhs[..]].concat())
+                } else {
+                    panic!("operations requires both sides to be of same type");
+                }
+            }
+            Value::Object(boxed_lhs) => {
+                // TODO: this feels atrocious, search for a better way 
+                let rhs = match _rhs {
+                    Value::Object(boxed_rhs) => {
+                        match *boxed_rhs {
+                            Value::List(rhs) => rhs,
+                            _ => panic!("operations requires both sides to be of same type"),
+                        }
+                    }
+                    _ => panic!("operations requires both sides to be of same type"),
+                };
+
+                if let Value::List(lhs) = *boxed_lhs {
+                    let keyvalues = Value::List([&lhs[..], &rhs[..]].concat());
+                    Value::Object(Box::new(keyvalues))
+                } else {
+                    panic!("operations requires both sides to be of same type");
+                }
+            }
+            Value::Iterator(_) => {
+                panic!("addition of iterators not yet implemented");
+            }
+            _ => panic!("type does not support add operation"),
+        };
+
+        result
+    }
 }
 
 impl Serialize for Value {

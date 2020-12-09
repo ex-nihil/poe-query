@@ -37,7 +37,7 @@ operation = { add | subtract | multiply | divide | power }
 // functions
 select = { "select(" ~ bool_expression ~ ")" }
 transpose = { "transpose" }
-reduce_init_value = { datatypes ~ ";" }
+reduce_init_value = { (datatypes | array_construction | object_construct) ~ ";" }
 reduce = { "reduce" ~ (!assign_variable ~ query)+ ~ assign_variable ~ "(" ~ reduce_init_value ~ expr* ~ ")" }
 
 // comparisons
