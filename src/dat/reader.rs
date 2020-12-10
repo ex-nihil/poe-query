@@ -4,6 +4,7 @@ use std::fs;
 use poe_bundle_reader::reader::{BundleReader, BundleReaderRead};
 
 use super::file::DatFile;
+use super::file::DatFileRead;
 use super::traverse::TraversalContext;
 use super::specification::FileSpec;
 
@@ -29,14 +30,16 @@ impl DatContainer {
         let bundles = BundleReader::from_install(path);
 
         let dat_files: HashMap<String, DatFile> = specs
-            .keys()
-            .map(|path| {
+            .iter()
+            .map(|(path, spec)| {
                 let size = bundles.size_of(path).unwrap();
                 let mut dst = Vec::with_capacity(size);
                 bundles
                     .write_into(path, &mut dst)
                     .expect("failed writing DAT file to buffer");
-                (path.clone(), DatFile::from_bytes(dst))
+                let file = DatFile::from_bytes(dst);
+                file.valid(spec);
+                (path.clone(), file)
             })
             .collect();
 

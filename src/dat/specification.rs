@@ -43,6 +43,15 @@ impl FileSpec {
             ..spec
         };
     }
+
+    pub fn field_size(field: &FieldSpec) -> u64 {
+        let datatype = field.datatype.split("|").next().unwrap();
+        match datatype {
+            "u64" | "list" => 8,
+            "bool" | "u8" => 1,
+            _ => 4,
+        }
+    }
 }
 
 fn update_with_offsets(fields: Vec<FieldSpec>) -> Vec<FieldSpec> {
@@ -50,19 +59,13 @@ fn update_with_offsets(fields: Vec<FieldSpec>) -> Vec<FieldSpec> {
     fields
         .iter()
         .map(|field| {
-            let datatype = field.datatype.split("|").next().unwrap();
-            let size = match datatype {
-                "u64" | "list" => 8,
-                "bool" | "u8" => 1,
-                _ => 4,
-            };
             let updated = FieldSpec {
                 offset,
                 name: field.name.clone(),
                 datatype: field.datatype.clone(),
                 file: field.file.clone(),
             };
-            offset += size;
+            offset += FileSpec::field_size(field);
             return updated;
         })
         .collect()

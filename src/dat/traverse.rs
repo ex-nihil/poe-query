@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::convert::TryFrom;
 
 use super::super::lang::{Compare, Operation, Term};
 use super::file::DatFileRead;
@@ -274,10 +273,9 @@ impl TraversalContextImpl for TraversalContext<'_> {
                         .fields
                         .iter()
                         .map(move |field| {
-                            let row_offset = file.rows_begin + i as usize * file.row_size;
                             Value::KeyValue(
                                 Box::new(Value::Str(field.name.clone())),
-                                Box::new(file.read(row_offset, &field)),
+                                Box::new(file.read_field(i as u64, &field)),
                             )
                         })
                         .collect();
@@ -491,8 +489,7 @@ impl TraversalContextImpl for TraversalContext<'_> {
                     .fields
                     .iter()
                     .map(move |field| {
-                        let row_offset = file.rows_begin + i as usize * file.row_size;
-                        Value::KeyValue(Box::new(Value::Str(field.name.clone())), Box::new(file.read(row_offset, &field)))
+                        Value::KeyValue(Box::new(Value::Str(field.name.clone())), Box::new(file.read_field(i, &field)))
                     })
                     .collect();
 
@@ -523,9 +520,7 @@ impl TraversalContextImpl for TraversalContext<'_> {
                     .fields
                     .iter()
                     .map(move |field| {
-                        let row_offset =
-                            file.rows_begin + usize::try_from(*i).unwrap() * file.row_size;
-                        Value::KeyValue(Box::new(Value::Str(field.name.clone())), Box::new(file.read(row_offset, &field)))
+                        Value::KeyValue(Box::new(Value::Str(field.name.clone())), Box::new(file.read_field(*i, &field)))
                     })
                     .collect();
                 Value::Object(Box::new(Value::List(kv_list)))

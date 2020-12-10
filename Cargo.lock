@@ -409,6 +409,7 @@ version = "0.1.0"
 dependencies = [
  "byteorder",
  "clap",
+ "log",
  "memmap",
  "pest",
  "pest_derive",
@@ -416,6 +417,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "simplelog",
 ]
 
 [[package]]

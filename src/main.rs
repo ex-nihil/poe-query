@@ -1,16 +1,21 @@
-use clap::{App, Arg};
 extern crate pest;
 #[macro_use]
 extern crate pest_derive;
+extern crate log;
+extern crate simplelog;
+
+use clap::{App, Arg};
+use simplelog::*;
+use log::*;
 
 mod dat;
-use dat::traverse::TermsProcessor;
 use dat::reader::{DatContainer, DatContainerImpl};
+use dat::traverse::TermsProcessor;
 use std::time::Instant;
 
 pub mod lang;
-pub use lang::Term;
 pub use dat::value::Value;
+pub use lang::Term;
 
 fn main() {
     let matches = App::new("PoE DAT transformer")
@@ -34,6 +39,12 @@ fn main() {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("v")
+                .short("v")
+                .multiple(true)
+                .help("Sets the level of verbosity"),
+        )
+        .arg(
             Arg::with_name("query")
                 .value_name("\"QUERY\"")
                 .required(true)
@@ -42,9 +53,22 @@ fn main() {
         )
         .get_matches();
 
+    let log_level = match matches.occurrences_of("v") {
+        0 => LevelFilter::Warn,
+        1 => LevelFilter::Info,
+        2 => LevelFilter::Debug,
+        3 | _ => LevelFilter::Trace,
+    };
+    CombinedLogger::init(vec![TermLogger::new(
+        log_level,
+        Config::default(),
+        TerminalMode::Mixed,
+    )])
+    .unwrap();
+
     let query = matches.value_of("query").unwrap();
     let terms = lang::parse(query);
-    //println!("TERM: {:?}", terms);
+    debug!("terms: {:?}", terms);
 
     let mut now = Instant::now();
     let container = DatContainer::from_install("/Users/nihil/code/poe-files", "spec");
@@ -58,6 +82,6 @@ fn main() {
     let serialized = serde_json::to_string_pretty(&value).unwrap();
     println!("{}", serialized);
 
-    println!("setup spent: {}ms", read_index_ms);
-    println!("query spent: {}ms", query_ms);
+    info!("setup spent: {}ms", read_index_ms);
+    info!("query spent: {}ms", query_ms);
 }

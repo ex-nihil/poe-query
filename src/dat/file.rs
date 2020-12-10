@@ -1,8 +1,10 @@
 use byteorder::{LittleEndian, ReadBytesExt};
 use core::panic;
+use log::*;
 use std::io::Cursor;
 
 use super::specification::FieldSpec;
+use super::specification::FileSpec;
 use super::util;
 use super::value::Value;
 
@@ -10,7 +12,8 @@ const DATA_SECTION_START: &[u8; 8] = &[0xBB; 8];
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct DatFile {
-    pub raw: Vec<u8>,
+    pub bytes: Vec<u8>,
+    pub total_size: usize,
     pub rows_begin: usize,
     pub data_offset: usize,
     pub rows_count: u32,
@@ -30,7 +33,8 @@ impl<'a> DatFile {
         let row_size = rows_total_size / rows_count as usize;
 
         DatFile {
-            raw: bytes,
+            total_size: bytes.len(),
+            bytes,
             rows_begin,
             data_offset,
             rows_count,
@@ -40,18 +44,33 @@ impl<'a> DatFile {
 }
 
 pub trait DatFileRead {
-    fn read(&self, offset: usize, field: &FieldSpec) -> Value;
+    fn valid(&self, spec: &FileSpec);
+    fn read_field(&self, row: u64, field: &FieldSpec) -> Value;
 }
 
 impl DatFileRead for DatFile {
-    fn read(&self, offset: usize, field: &FieldSpec) -> Value {
-        let mut c = Cursor::new(self.raw.as_slice());
-        c.set_position(offset as u64 + field.offset);
+    fn valid(&self, spec: &FileSpec) {
+        let last_field = spec.fields.last();
+        if let Some(field) = last_field {
+            let spec_row_size = field.offset + FileSpec::field_size(field);
+            let diff = self.row_size as u64 - spec_row_size;
+            if diff != 0 {
+                warn!("Rows in '{}' have {} bytes not defined in spec",spec.filename, diff);
+            }
+        } else {
+            warn!("Spec for {} does not contain fields", spec.filename);
+        }
+    }
+
+    fn read_field(&self, row: u64, field: &FieldSpec) -> Value {
+        let row_offset = self.rows_begin + row as usize * self.row_size;
+        let exact_offset = row_offset + field.offset as usize;
+        let mut c = Cursor::new(self.bytes.as_slice());
+        c.set_position(exact_offset as u64);
         read_data_field(&mut c, self, field.datatype.as_str())
     }
 }
 
-// TODO: cleanup / refactor
 pub fn read_data_field(cursor: &mut Cursor<&[u8]>, dat: &DatFile, field_type: &str) -> Value {
     // variable length data (ref and list) is all located in the data section
     if field_type.starts_with("list|") {
@@ -60,11 +79,11 @@ pub fn read_data_field(cursor: &mut Cursor<&[u8]>, dat: &DatFile, field_type: &s
 
         let list_offset = dat.data_offset + offset as usize;
 
-        if list_offset > dat.raw.len() {
+        if list_offset > dat.bytes.len() {
             panic!("List Overflow! This is a bug or the file is corrupted.");
         }
 
-        let mut list_cursor = Cursor::new(dat.raw.as_slice());
+        let mut list_cursor = Cursor::new(dat.bytes.as_slice());
         list_cursor.set_position(list_offset as u64);
 
         let elem_type: String = field_type.chars().skip(5).collect();
@@ -79,11 +98,11 @@ pub fn read_data_field(cursor: &mut Cursor<&[u8]>, dat: &DatFile, field_type: &s
 
         let value_offset = dat.data_offset + data_ref as usize;
 
-        if value_offset > dat.raw.len() {
+        if value_offset > dat.bytes.len() {
             panic!("Ref Overflow! This is a bug or the file is corrupted.");
         }
 
-        let asd = &dat.raw[value_offset..];
+        let asd = &dat.bytes[value_offset..];
         let mut value_cursor = Cursor::new(asd);
         read_value(&mut value_cursor, remainder.as_str())
     } else {
