@@ -2,6 +2,7 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use core::panic;
 use log::*;
 use std::io::Cursor;
+use std::process;
 
 use super::specification::FieldSpec;
 use super::specification::FileSpec;
@@ -45,7 +46,10 @@ impl<'a> DatFile {
 
 pub trait DatFileRead {
     fn valid(&self, spec: &FileSpec);
+    fn check_offset(&self, offset: usize);
     fn read_field(&self, row: u64, field: &FieldSpec) -> Value;
+    fn read_value(&self, offset: u64, field_type: &str) -> Value;
+    fn read_list(&self, offset: u64, len: u64, field_type: &str) -> Vec<Value>;
 }
 
 impl DatFileRead for DatFile {
@@ -55,59 +59,58 @@ impl DatFileRead for DatFile {
             let spec_row_size = field.offset + FileSpec::field_size(field);
             let diff = self.row_size as u64 - spec_row_size;
             if diff != 0 {
-                warn!("Rows in '{}' have {} bytes not defined in spec",spec.filename, diff);
+                warn!(
+                    "Rows in '{}' have {} bytes not defined in spec",
+                    spec.filename, diff
+                );
             }
         } else {
             warn!("Spec for {} does not contain fields", spec.filename);
         }
     }
 
+    fn check_offset(&self, offset: usize) {
+        if offset > self.total_size {
+            error!("Attempt to read outside DAT. This is a bug or the file is corrupted.");
+            process::exit(-1);
+        }
+    }
+
+    fn read_value(&self, offset: u64, data_type: &str) -> Value {
+        let exact_offset = self.data_offset + offset as usize;
+        self.check_offset(exact_offset);
+
+        let mut c = Cursor::new(&self.bytes[exact_offset..]);
+        read_value(&mut c, data_type)
+    }
+
+    fn read_list(&self, offset: u64, len: u64, data_type: &str) -> Vec<Value> {
+        let exact_offset = self.data_offset + offset as usize;
+        self.check_offset(exact_offset);
+
+        let mut c = Cursor::new(&self.bytes[exact_offset..]);
+        (0..len).map(|_| read_value(&mut c, data_type)).collect()
+    }
+
     fn read_field(&self, row: u64, field: &FieldSpec) -> Value {
         let row_offset = self.rows_begin + row as usize * self.row_size;
         let exact_offset = row_offset + field.offset as usize;
-        let mut c = Cursor::new(self.bytes.as_slice());
-        c.set_position(exact_offset as u64);
-        read_data_field(&mut c, self, field.datatype.as_str())
-    }
-}
-
-pub fn read_data_field(cursor: &mut Cursor<&[u8]>, dat: &DatFile, field_type: &str) -> Value {
-    // variable length data (ref and list) is all located in the data section
-    if field_type.starts_with("list|") {
-        let length = cursor.read_u32::<LittleEndian>().unwrap();
-        let offset = cursor.read_u32::<LittleEndian>().unwrap();
-
-        let list_offset = dat.data_offset + offset as usize;
-
-        if list_offset > dat.bytes.len() {
-            panic!("List Overflow! This is a bug or the file is corrupted.");
+        let mut c = Cursor::new(&self.bytes[exact_offset..]);
+        
+        let mut parts = field.datatype.split("|");
+        let prefix = parts.next();
+        if prefix.filter(|&dtype| "list" == dtype).is_some() {
+            let length = c.read_u32::<LittleEndian>().unwrap() as u64;
+            let offset = c.read_u32::<LittleEndian>().unwrap() as u64;
+            Value::List(self.read_list(offset, length, parts.next().unwrap()))
+        } else if prefix.filter(|&dtype| "ref" == dtype).is_some() {
+            let offset = c.read_u32::<LittleEndian>().unwrap();
+            self.read_value(offset as u64, parts.next().unwrap())
+        } else {
+            read_value(&mut c, field.datatype.as_str())
         }
-
-        let mut list_cursor = Cursor::new(dat.bytes.as_slice());
-        list_cursor.set_position(list_offset as u64);
-
-        let elem_type: String = field_type.chars().skip(5).collect();
-
-        let list = (0..length)
-            .map(|_| read_value(&mut list_cursor, elem_type.as_str()))
-            .collect();
-        Value::List(list)
-    } else if field_type.starts_with("ref|") {
-        let remainder: String = field_type.chars().skip(4).collect();
-        let data_ref = cursor.read_u32::<LittleEndian>().unwrap();
-
-        let value_offset = dat.data_offset + data_ref as usize;
-
-        if value_offset > dat.bytes.len() {
-            panic!("Ref Overflow! This is a bug or the file is corrupted.");
-        }
-
-        let asd = &dat.bytes[value_offset..];
-        let mut value_cursor = Cursor::new(asd);
-        read_value(&mut value_cursor, remainder.as_str())
-    } else {
-        read_value(cursor, field_type)
     }
+
 }
 
 fn read_value<'a>(cursor: &mut Cursor<&[u8]>, tag: &str) -> Value {
