@@ -7,5 +7,5 @@
     type: .generation_type,
     name: .name,
     ilvl: .level,
-    spawn_weights: [.spawn_weight_tags[].id, .spawn_weight_values]transpose | map({[0]: [1]}) | reduce .[] as $item ({}; . + $item)
+    spawn_weights: [.spawn_weight_tags[].id, .spawn_weight_values] | zip_to_obj
 }

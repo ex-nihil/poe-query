@@ -36,6 +36,7 @@ operation = { add | subtract | multiply | divide | power }
 
 // functions
 select = { "select(" ~ bool_expression ~ ")" }
+zip_to_obj = { "zip_to_obj" } // not part of JQ
 transpose = { "transpose" }
 reduce_init_value = { (datatypes | array_construction | object_construct) ~ ";" }
 reduce = { "reduce" ~ (!assign_variable ~ query)+ ~ assign_variable ~ "(" ~ reduce_init_value ~ expr* ~ ")" }
@@ -57,7 +58,7 @@ array_construction = { "[" ~ query* ~ "]" }
 
 optional = { "?" }
 
-functions = _ { map | reduce | transpose }
+functions = _ { map | reduce | transpose | zip_to_obj }
 filter = _{ functions | assign_variable | variable | select | iterator | field | index_reverse | index | slice | identity }
 query = _{ operator? ~ (datatypes | filter | array_construction | object_construct) }
 

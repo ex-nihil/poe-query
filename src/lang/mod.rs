@@ -101,6 +101,32 @@ fn build_ast(pair: pest::iterators::Pair<Rule>, dst: &mut Vec<Term>) {
                 lhs.iter().for_each(|t| dst.push(t.clone()));
             }
         }
+        Rule::zip_to_obj => {
+            let instructions = vec![
+                Term::transpose, 
+                Term::map(vec![
+                    Term::object(vec![
+                        Term::kv(vec![Term::name(vec![Term::by_index(0)])], vec![Term::by_index(1)])
+                    ])
+                ]),
+                Term::reduce(
+                    vec![
+                        Term::identity,
+                        Term::iterator,
+                        Term::set_variable("item".to_string()),
+                    ],
+                    vec![Term::object(vec![])],
+                    vec![
+                        Term::calculate(
+                            vec![Term::identity],
+                            Operation::add,
+                            vec![Term::get_variable("item".to_string())]
+                        )
+                    ]
+                ),
+            ];
+            instructions.iter().for_each(|t| dst.push(t.clone()));
+        }
         Rule::reduce => {
             let inner = pair.into_inner();
 
