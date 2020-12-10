@@ -1,8 +1,8 @@
 # TODOs
  - add all the specification yaml files
- - JSON serialization
- - Object creation (lang)
- - Comma operation (lang)
- - Filter based on actual values (lang)
- - Nested objects
- - Lists + different data types
+ - translations
+ - tests!
+ - refactor
+    - reduce amount of copying of data
+    - optional multithreading (HDD vs SSD)
+    - lazy loading of DatFiles?
