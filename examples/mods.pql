@@ -7,5 +7,11 @@
     type: .generation_type,
     name: .name,
     ilvl: .level,
-    spawn_weights: [.spawn_weight_tags[].id, .spawn_weight_values] | zip_to_obj
+    stats1: [.stats1.id, .stat1_min, .stat1_max],
+    stats2: [.stats2.id, .stat2_min, .stat2_max],
+    stats3: [.stats3.id, .stat3_min, .stat3_max],
+    stats4: [.stats4.id, .stat4_min, .stat4_max],
+    stats5: [.stats5.id, .stat5_min, .stat5_max],
+    spawn_weights: [.spawn_weight_tags[].id, .spawn_weight_values] | zip_to_obj,
+    gen_weights: [.gen_weight_tags[].id, .gen_weight_values] | zip_to_obj
 }

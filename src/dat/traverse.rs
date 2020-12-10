@@ -289,15 +289,6 @@ impl TraversalContextImpl for TraversalContext<'_> {
             self.identity = Some(Value::List(values));
         } else {
             self.enter_foreign();
-
-            match self.identity.clone().unwrap_or(Value::Empty) {
-                Value::Object(_) => {}
-                Value::Iterator(_) => {} // TODO: clean up, and provide a helpful output message "did you mean to use []?"
-                k => panic!(format!(
-                    "Can't step into a field unless it's an object or iteratable. {:?}",
-                    k
-                )),
-            };
             self.current_field = Some(name.to_string());
             self.identity = Some(self.value());
         }
@@ -331,6 +322,7 @@ impl TraversalContextImpl for TraversalContext<'_> {
                     Value::List(ids) => ids.clone(),     // TODO: yikes
                     Value::Iterator(ids) => ids.clone(), // TODO: yikes
                     Value::U64(id) => vec![Value::U64(*id)],
+                    Value::Empty => vec![],
                     item => panic!(format!("Not a valid id for foreign key: {:?}", item)),
                 }
                 .iter()

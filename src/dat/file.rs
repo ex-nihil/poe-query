@@ -105,6 +105,7 @@ impl DatFileRead for DatFile {
     }
 
     fn read_field(&self, row: u64, field: &FieldSpec) -> Value {
+        trace!("reading {:?} from row {}", field, row);
         let row_offset = self.rows_begin + row as usize * self.row_size;
         let exact_offset = row_offset + field.offset as usize;
         let mut c = Cursor::new(&self.bytes[exact_offset..]);
