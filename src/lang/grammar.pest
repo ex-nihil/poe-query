@@ -1,5 +1,5 @@
 // ignore identity for now
-WHITESPACE = _{ " " }
+WHITESPACE = _{ " " | "\n" }
 identity = { "."{1} }
 dollar = _{ "$" }
 minus = { "-" }
@@ -71,5 +71,3 @@ expr = { term ~ (operation ~ term)* }
 term = _{ query | "(" ~ expr ~ ")" } // precedence
 
 program = _{ SOI ~ expr+}
-
-// .test[] + .ok, .thefuck + "ok"

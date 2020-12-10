@@ -1,0 +1,11 @@
+.mods[] select(.id == "MovementVelocityWeaponInfluence2")[] | 
+{
+    id: .id,
+    mod_type: .mod_type.name,
+    mod_type_tags: .mod_type.tags[].id,
+    group: .group,
+    type: .generation_type,
+    name: .name,
+    ilvl: .level,
+    spawn_weights: [.spawn_weight_tags[].id, .spawn_weight_values]transpose | map({[0]: [1]}) | reduce .[] as $item ({}; . + $item)
+}

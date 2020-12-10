@@ -10,7 +10,7 @@ pub enum Value {
     List(Vec<Value>),
     Iterator(Vec<Value>),
     KeyValue(Box<Value>, Box<Value>),
-    Object(Box<Value>), // TODO: make this a map instead
+    Object(Box<Value>), // TODO: make this a map instead?
     Bool(bool),
     Empty,
 }
