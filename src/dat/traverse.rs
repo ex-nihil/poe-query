@@ -11,7 +11,7 @@ use super::value::Value;
 pub struct TraversalContext<'a> {
     pub store: DatStore<'a>,
     pub variables: HashMap<String, Value>,
-    pub current_field: Option<String>, // I should be able to get rid of this
+    pub current_field: Option<String>,
     pub current_file: Option<&'a str>,
     pub identity: Option<Value>,
 }
@@ -36,6 +36,7 @@ pub trait TermsProcessor {
 }
 
 impl TermsProcessor for TraversalContext<'_> {
+
     fn process(&mut self, parsed_terms: &Vec<Term>) -> Value {
         let parts = parsed_terms.split(|term| match term {
             Term::comma => true,
@@ -425,8 +426,6 @@ impl TraversalContextImpl for TraversalContext<'_> {
 
                         values.first().unwrap_or(&Value::Empty).clone()
                     }
-
-                    //Box::new(Value::Str(field.name.clone())),
                     Value::KeyValue(key, value) => {
                         if *key == Value::Str(self.current_field.clone().unwrap()) {
                             *value.clone()

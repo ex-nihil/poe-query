@@ -52,7 +52,6 @@ impl DatContainer {
 
 #[derive(Debug, Clone, Copy)]
 pub struct DatStore<'a> {
-    // TODO: lazy load of dat files
     pub files: &'a HashMap<String, DatFile>,
     pub specs: &'a HashMap<String, FileSpec>,
 }

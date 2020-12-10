@@ -67,16 +67,14 @@ pub trait DatFileRead {
 }
 
 impl DatFileRead for DatFile {
+
     fn valid(&self, spec: &FileSpec) {
         let last_field = spec.fields.last();
         if let Some(field) = last_field {
             let spec_row_size = field.offset + FileSpec::field_size(field);
             let diff = self.row_size as u64 - spec_row_size;
             if diff != 0 {
-                warn!(
-                    "Rows in '{}' have {} bytes not defined in spec",
-                    spec.filename, diff
-                );
+                warn!("Rows in '{}' have {} bytes not defined in spec", spec.filename, diff);
             }
         } else {
             warn!("Spec for {} does not contain fields", spec.filename);
@@ -95,7 +93,7 @@ impl DatFileRead for DatFile {
         self.check_offset(exact_offset);
 
         let mut c = Cursor::new(&self.bytes[exact_offset..]);
-        read_value(&mut c, data_type)
+        c.read_value(data_type)
     }
 
     fn read_list(&self, offset: u64, len: u64, data_type: &str) -> Vec<Value> {
@@ -103,7 +101,7 @@ impl DatFileRead for DatFile {
         self.check_offset(exact_offset);
 
         let mut c = Cursor::new(&self.bytes[exact_offset..]);
-        (0..len).map(|_| read_value(&mut c, data_type)).collect()
+        (0..len).map(|_| c.read_value(data_type)).collect()
     }
 
     fn read_field(&self, row: u64, field: &FieldSpec) -> Value {
@@ -121,65 +119,78 @@ impl DatFileRead for DatFile {
             let offset = c.read_u32::<LittleEndian>().unwrap();
             self.read_value(offset as u64, parts.next().unwrap())
         } else {
-            read_value(&mut c, field.datatype.as_str())
+            c.read_value(field.datatype.as_str())
         }
     }
 }
 
-fn read_value<'a>(cursor: &mut Cursor<&[u8]>, tag: &str) -> Value {
-    return match tag {
-        "bool" => read_bool(cursor),
-        "u8" => read_u8(cursor),
-        "u32" => read_u32(cursor),
-        "i32" => read_i32(cursor),
-        "ptr" => read_u64(cursor),
-        "u64" => read_u64(cursor),
-        "string" => Value::Str(read_utf16(cursor)),
-        value => panic!("Unsupported type in specification. {}", value),
-    };
+trait ReadBytesToValue {
+    fn read_value<'a>(&mut self, tag: &str) -> Value;
+    fn bool<'a>(&mut self) -> Value;
+    fn u8<'a>(&mut self) -> Value;
+    fn u32<'a>(&mut self) -> Value;
+    fn i32<'a>(&mut self) -> Value;
+    fn u64<'a>(&mut self) -> Value;
+    fn utf16<'a>(&mut self) -> String;
 }
 
-pub fn read_bool<'a>(cursor: &mut Cursor<&[u8]>) -> Value {
-    return match cursor.read_u8() {
-        Ok(value) => Value::Bool(value != 0),
-        _ => panic!("Unable to read bool"),
-    };
-}
+impl ReadBytesToValue for Cursor<&[u8]> {
 
-pub fn read_u8<'a>(cursor: &mut Cursor<&[u8]>) -> Value {
-    return match cursor.read_u8() {
-        Ok(value) => Value::Byte(value),
-        _ => panic!("Unable to read u8"),
-    };
-}
+    fn read_value<'a>(&mut self, tag: &str) -> Value {
+        return match tag {
+            "bool" => self.bool(),
+            "u8"   => self.u8(),
+            "u32"  => self.u32(),
+            "i32"  => self.i32(),
+            "ptr"  => self.u64(),
+            "u64"  => self.u64(),
+            "string" => Value::Str(self.utf16()),
+            value => panic!("Unsupported type in specification. {}", value),
+        };
+    }
 
-pub fn read_u32<'a>(cursor: &mut Cursor<&[u8]>) -> Value {
-    return match cursor.read_u32::<LittleEndian>() {
-        Ok(value) => u32_to_enum(value),
-        _ => panic!("Unable to read u32"),
-    };
-}
+    fn bool<'a>(&mut self) -> Value {
+        return match self.read_u8() {
+            Ok(value) => Value::Bool(value != 0),
+            _ => panic!("Unable to read bool"),
+        };
+    }
 
-pub fn read_i32<'a>(cursor: &mut Cursor<&[u8]>) -> Value {
-    return match cursor.read_i32::<LittleEndian>() {
-        Ok(value) => i32_to_enum(value),
-        _ => panic!("Unable to read u32"),
-    };
-}
+    fn u8<'a>(&mut self) -> Value {
+        return match self.read_u8() {
+            Ok(value) => Value::Byte(value),
+            Err(_)=> panic!("Unable to read u8"),
+        };
+    }
 
-pub fn read_u64<'a>(cursor: &mut Cursor<&[u8]>) -> Value {
-    return match cursor.read_u64::<LittleEndian>() {
-        Ok(value) => u64_to_enum(value),
-        _ => panic!("Unable to read u64"),
-    };
-}
+    fn u32<'a>(&mut self) -> Value {
+        return match self.read_u32::<LittleEndian>() {
+            Ok(value) => u32_to_enum(value),
+            Err(_) => panic!("Unable to read u32"),
+        };
+    }
 
-pub fn read_utf16<'a>(cursor: &mut Cursor<&[u8]>) -> String {
-    let raw = (0..)
-        .map(|_| cursor.read_u16::<LittleEndian>().unwrap())
-        .take_while(|&x| x != 0u16)
-        .collect::<Vec<u16>>();
-    return String::from_utf16(&raw).expect("Unable to decode as UTF-16 String");
+    fn i32<'a>(&mut self) -> Value {
+        return match self.read_i32::<LittleEndian>() {
+            Ok(value) => i32_to_enum(value),
+            Err(_) => panic!("Unable to read u32"),
+        };
+    }
+
+    fn u64<'a>(&mut self) -> Value {
+        return match self.read_u64::<LittleEndian>() {
+            Ok(value) => u64_to_enum(value),
+            Err(_) => panic!("Unable to read u64"),
+        };
+    }
+
+    fn utf16<'a>(&mut self) -> String {
+        let raw = (0..)
+            .map(|_| self.read_u16::<LittleEndian>().unwrap())
+            .take_while(|&x| x != 0u16)
+            .collect::<Vec<u16>>();
+        return String::from_utf16(&raw).expect("Unable to decode as UTF-16 String");
+    }
 }
 
 fn u64_to_enum(value: u64) -> Value {
