@@ -49,7 +49,6 @@ impl ops::Add<Value> for Value {
                 }
             }
             Value::List(lhs) => {
-                println!("RHS: {:?} LHS: {:?}", lhs, _rhs);
                 if let Value::List(rhs) = _rhs {
                     Value::List([&lhs[..], &rhs[..]].concat())
                 } else {
@@ -60,10 +59,10 @@ impl ops::Add<Value> for Value {
                 // TODO: this feels atrocious, search for a better way 
                 let rhs = match _rhs {
                     Value::Object(boxed_rhs) => {
-                        println!("RHS: {:?}", boxed_rhs);
                         match *boxed_rhs {
                             Value::List(rhs) => rhs,
                             Value::KeyValue(_, _) => vec![*boxed_rhs],
+                            Value::Empty => vec![],
                             _ => panic!("operations requires both sides to be of same type"),
                         }
                     }
@@ -73,6 +72,7 @@ impl ops::Add<Value> for Value {
                 let result = match *boxed_lhs {
                     Value::List(lhs) => Value::List([&lhs[..], &rhs[..]].concat()),
                     Value::KeyValue(_, _) => Value::List([&[*boxed_lhs], &rhs[..]].concat()),
+                    Value::Empty => Value::List(rhs),
                     _ => panic!("operations requires both sides to be of same type"),
                 };
                 Value::Object(Box::new(result))

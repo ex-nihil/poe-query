@@ -25,7 +25,7 @@ pub enum Term {
     set_variable(String),
     get_variable(String),
     unsigned_number(u64),
-    reduce(Vec<Term>, Box<Term>, Vec<Term>),
+    reduce(Vec<Term>, Vec<Term>, Vec<Term>),
     map(Vec<Term>),
     signed_number(i64),
     transpose,
@@ -104,7 +104,7 @@ fn build_ast(pair: pest::iterators::Pair<Rule>, dst: &mut Vec<Term>) {
         Rule::reduce => {
             let inner = pair.into_inner();
 
-            let mut initial = Term::noop;
+            let mut initial = Vec::new();
             let mut inner_terms = Vec::new();
             let mut outer_terms = Vec::new();
             let mut current = &mut outer_terms;
@@ -112,14 +112,14 @@ fn build_ast(pair: pest::iterators::Pair<Rule>, dst: &mut Vec<Term>) {
                 match next.as_rule() {
                     Rule::reduce_init_value => {
                         current = &mut inner_terms;
-                        initial = to_term(next.into_inner().next().unwrap());
+                        build_ast(next.into_inner().next().unwrap(), &mut initial);
                     }
                     _ => {
                         build_ast(next, current);
                     }
                 }
             }
-            dst.push(Term::reduce(outer_terms, Box::new(initial), inner_terms));
+            dst.push(Term::reduce(outer_terms, initial, inner_terms));
         }
         Rule::map => {
             let inner = pair.into_inner();
@@ -130,6 +130,34 @@ fn build_ast(pair: pest::iterators::Pair<Rule>, dst: &mut Vec<Term>) {
             }
             dst.push(Term::map(terms));
         }
+        Rule::object_construct => {
+            let content = pair.into_inner();
+            let mut object_terms = Vec::new();
+            for pair in content {
+                match pair.as_rule() {
+                    Rule::comma => object_terms.push(to_term(pair)),
+                    _ => {
+                        let mut key_terms = Vec::new();
+                        let mut content = pair.into_inner();
+                        match content.next() {
+                            Some(p) => {
+                                // TODO: handle multiple
+                                key_terms.push(to_term(p))
+                            },
+                            None => {
+                                panic!("Introduced a new construct without updating term parser?")
+                            }
+                        };
+                        let mut kv_terms = Vec::new();
+                        while let Some(next) = content.next() {
+                            build_ast(next, &mut kv_terms);
+                        }
+                        object_terms.push(Term::kv(key_terms, kv_terms));
+                    }
+                }
+            }
+            dst.push(Term::object(object_terms))
+        },
         _ => {
             dst.push(to_term(pair));
         },
@@ -146,6 +174,10 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
             Term::by_name(ident.to_string())
         }
         Rule::string => {
+            let text = pair.as_span().as_str().to_string();
+            Term::string(text)
+        }
+        Rule::identifier => {
             let text = pair.as_span().as_str().to_string();
             Term::string(text)
         }
@@ -258,34 +290,6 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
                 items.push(to_term(next));
             }
             Term::array(items)
-        }
-        Rule::object_construct => {
-            let content = pair.into_inner();
-            let mut object_terms = Vec::new();
-            for pair in content {
-                match pair.as_rule() {
-                    Rule::comma => object_terms.push(to_term(pair)),
-                    _ => {
-                        let mut key_terms = Vec::new();
-                        let mut content = pair.into_inner();
-                        match content.next() {
-                            Some(p) => {
-                                // TODO: handle multiple
-                                key_terms.push(to_term(p))
-                            },
-                            None => {
-                                panic!("Introduced a new construct without updating term parser?")
-                            }
-                        };
-                        let mut kv_terms = Vec::new();
-                        while let Some(next) = content.next() {
-                            kv_terms.push(to_term(next));
-                        }
-                        object_terms.push(Term::kv(key_terms, kv_terms));
-                    }
-                }
-            }
-            Term::object(object_terms)
         }
         _ => {
             println!("UNHANDLED: {}", pair);

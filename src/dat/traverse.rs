@@ -116,7 +116,7 @@ impl TermsProcessor for TraversalContext<'_> {
                         .collect();
                     self.traverse_terms_inner(outer_terms);
 
-                    let initial = self.traverse_terms_inner(&[*init.clone()]);
+                    let initial = self.clone_with_value(None).traverse_terms_inner(init);
                     let variable = vars.first().unwrap().as_str();
                     let value = self
                         .variables
@@ -262,8 +262,9 @@ impl TermsProcessor for TraversalContext<'_> {
 
 impl TraversalContextImpl for TraversalContext<'_> {
     fn child(&mut self, name: &str) {
-        if self.current_file.is_none() {
-            let spec = self.store.spec_by_export(name).unwrap();
+        let spec = self.store.spec_by_export(name);
+        if self.current_file.is_none() && spec.is_some() {
+            let spec = spec.unwrap();
 
             // generate initial values
             let file = self.store.file(&spec.filename).unwrap();
@@ -404,10 +405,6 @@ impl TraversalContextImpl for TraversalContext<'_> {
     }
 
     fn value(&mut self) -> Value {
-        let current = self.current_file.unwrap();
-        let spec = self.store.spec(current).unwrap();
-        let file = self.store.file(current).unwrap();
-
         let identity = self.identity.clone().unwrap_or(Value::Empty);
         match identity {
             // TODO: extract to function
@@ -485,6 +482,10 @@ impl TraversalContextImpl for TraversalContext<'_> {
                 return Value::List(result);
             }
             Value::U64(i) => {
+                let current = self.current_file.unwrap();
+                let spec = self.store.spec(current).unwrap();
+                let file = self.store.file(current).unwrap();
+
                 // TODO: extract to function
                 let kv_list: Vec<Value> = spec
                     .fields

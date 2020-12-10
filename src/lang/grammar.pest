@@ -41,20 +41,18 @@ reduce_init_value = { (datatypes | array_construction | object_construct) ~ ";" 
 reduce = { "reduce" ~ (!assign_variable ~ query)+ ~ assign_variable ~ "(" ~ reduce_init_value ~ expr* ~ ")" }
 map = { "map(" ~ expr+ ~ ")"}
 
-// comparisons
-equal = { "==" }
-not_equal = { "!=" }
-less_than = { "<" }
-greater_than = { ">" }
-compare = { equal | not_equal | less_than | greater_than }
 bool_expression = _{ query+ ~ compare ~ query+ }
-
+    compare = { equal | not_equal | less_than | greater_than }
+        equal = { "==" }
+        not_equal = { "!=" }
+        less_than = { "<" }
+        greater_than = { ">" }
 
 field = { identifier }
-key = {  (filter | datatypes) ~ ":" }
+key = {  (identifier | datatypes | filter)+ ~ ":" }
 
 named_query = { key ~ (!("," ~ &key) ~ query)+ }
-object_construct = { "{" ~ (named_query ~ operator?)+ ~ "}" }
+object_construct = { "{" ~ (named_query ~ operator?)* ~ "}" }
 array_construction = { "[" ~ query* ~ "]" }
 
 optional = { "?" }

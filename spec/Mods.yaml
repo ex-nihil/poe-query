@@ -68,6 +68,7 @@ fields:
     name: stat4_max
     type: u32
   - 
+    file: Data/Tags.dat
     name: spawn_weight_tags
     type: list|u64
   - 

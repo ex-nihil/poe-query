@@ -4,7 +4,7 @@ use std::fs;
 use poe_bundle_reader::reader::{BundleReader, BundleReaderRead};
 
 use super::file::DatFile;
-use super::navigate::TraversalContext;
+use super::traverse::TraversalContext;
 use super::specification::FileSpec;
 
 pub struct DatContainer {

@@ -4,7 +4,7 @@ extern crate pest;
 extern crate pest_derive;
 
 mod dat;
-use dat::navigate::TermsProcessor;
+use dat::traverse::TermsProcessor;
 use dat::reader::{DatContainer, DatContainerImpl};
 use std::time::Instant;
 
@@ -44,7 +44,7 @@ fn main() {
 
     let query = matches.value_of("query").unwrap();
     let terms = lang::parse(query);
-    println!("TERM: {:?}", terms);
+    //println!("TERM: {:?}", terms);
 
     let mut now = Instant::now();
     let container = DatContainer::from_install("/Users/nihil/code/poe-files", "spec");
