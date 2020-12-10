@@ -11,33 +11,47 @@ use super::value::Value;
 
 const DATA_SECTION_START: &[u8; 8] = &[0xBB; 8];
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug)]
 pub struct DatFile {
     pub bytes: Vec<u8>,
     pub total_size: usize,
     pub rows_begin: usize,
-    pub data_offset: usize,
+    pub data_section: usize,
     pub rows_count: u32,
     pub row_size: usize,
 }
 
-impl<'a> DatFile {
+const EMPTY_DAT: DatFile = DatFile {
+    total_size: 0,
+    bytes: vec![],
+    rows_begin: 0,
+    data_section: 0,
+    rows_count: 0,
+    row_size: 0,
+};
+
+impl DatFile {
     pub fn from_bytes(bytes: Vec<u8>) -> DatFile {
+        if bytes.is_empty() {
+            panic!("bytes was empty");
+        }
         let mut c = Cursor::new(&bytes);
         let rows_count = c.read_u32::<LittleEndian>().unwrap();
         if rows_count <= 0 {
-            panic!("Unable to read DAT file with {} rows", rows_count)
+            warn!("DAT file is empty");
+            return EMPTY_DAT;
         }
+
         let rows_begin = 4;
-        let data_offset = util::search_for(&bytes, DATA_SECTION_START);
-        let rows_total_size = data_offset - rows_begin;
+        let data_section = util::search_for(&bytes, DATA_SECTION_START);
+        let rows_total_size = data_section - rows_begin;
         let row_size = rows_total_size / rows_count as usize;
 
         DatFile {
             total_size: bytes.len(),
             bytes,
             rows_begin,
-            data_offset,
+            data_section,
             rows_count,
             row_size,
         }
@@ -77,7 +91,7 @@ impl DatFileRead for DatFile {
     }
 
     fn read_value(&self, offset: u64, data_type: &str) -> Value {
-        let exact_offset = self.data_offset + offset as usize;
+        let exact_offset = self.data_section + offset as usize;
         self.check_offset(exact_offset);
 
         let mut c = Cursor::new(&self.bytes[exact_offset..]);
@@ -85,7 +99,7 @@ impl DatFileRead for DatFile {
     }
 
     fn read_list(&self, offset: u64, len: u64, data_type: &str) -> Vec<Value> {
-        let exact_offset = self.data_offset + offset as usize;
+        let exact_offset = self.data_section + offset as usize;
         self.check_offset(exact_offset);
 
         let mut c = Cursor::new(&self.bytes[exact_offset..]);
@@ -96,7 +110,7 @@ impl DatFileRead for DatFile {
         let row_offset = self.rows_begin + row as usize * self.row_size;
         let exact_offset = row_offset + field.offset as usize;
         let mut c = Cursor::new(&self.bytes[exact_offset..]);
-        
+
         let mut parts = field.datatype.split("|");
         let prefix = parts.next();
         if prefix.filter(|&dtype| "list" == dtype).is_some() {
@@ -110,7 +124,6 @@ impl DatFileRead for DatFile {
             read_value(&mut c, field.datatype.as_str())
         }
     }
-
 }
 
 fn read_value<'a>(cursor: &mut Cursor<&[u8]>, tag: &str) -> Value {
@@ -162,16 +175,11 @@ pub fn read_u64<'a>(cursor: &mut Cursor<&[u8]>) -> Value {
 }
 
 pub fn read_utf16<'a>(cursor: &mut Cursor<&[u8]>) -> String {
-    // TODO: if EOF panic return empty string and log warning
     let raw = (0..)
-        .map(|_| {
-            cursor
-                .read_u16::<LittleEndian>()
-                .expect("Read UTF-16 until NULL term")
-        })
+        .map(|_| cursor.read_u16::<LittleEndian>().unwrap())
         .take_while(|&x| x != 0u16)
         .collect::<Vec<u16>>();
-    return String::from_utf16(&raw).expect("Decode a UTF-16 String");
+    return String::from_utf16(&raw).expect("Unable to decode as UTF-16 String");
 }
 
 fn u64_to_enum(value: u64) -> Value {
