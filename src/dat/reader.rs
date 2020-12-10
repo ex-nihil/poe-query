@@ -5,8 +5,8 @@ use poe_bundle_reader::reader::{BundleReader, BundleReaderRead};
 
 use super::file::DatFile;
 use super::file::DatFileRead;
-use super::traverse::TraversalContext;
 use super::specification::FileSpec;
+use super::traverse::TraversalContext;
 
 pub struct DatContainer {
     files: HashMap<String, DatFile>,
