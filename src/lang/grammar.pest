@@ -4,7 +4,7 @@ identity = { "."{1} }
 dollar = _{ "$" }
 minus = { "-" }
 
-identifier = { (ASCII_ALPHANUMERIC | "_")+ }
+identifier = { !"." ~ (ASCII_ALPHANUMERIC | "_")+ }
 digits = @{ ASCII_DIGIT+ }
 
 slice_from = { digits+ }
@@ -50,7 +50,7 @@ bool_expression = _{ query+ ~ compare ~ query+ }
         greater_than = { ">" }
 
 field = { identifier }
-key = {  (identifier | datatypes | filter)+ ~ ":" }
+key = {  (filter | datatypes)+ ~ ":" }
 
 named_query = { key ~ (!("," ~ &key) ~ query)+ }
 object_construct = { "{" ~ (named_query ~ operator?)* ~ "}" }

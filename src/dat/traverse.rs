@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use log::*;
 
 use super::super::lang::{Compare, Operation, Term};
 use super::file::DatFileRead;
@@ -150,10 +151,16 @@ impl TermsProcessor for TraversalContext<'_> {
                         new_value = Some(Value::Object(Box::new(output)));
                     }
                 }
-                Term::kv(key_terms, value_terms) => {
-                    let key = self.clone().process(&key_terms.to_vec());
+                Term::kv(key, value_terms) => {
+                    let key = self.clone().process(&vec![*key.clone()]);
                     let result = self.clone().process(&value_terms.to_vec());
-                    new_value = Some(Value::KeyValue(Box::new(key), Box::new(result)));
+                    match key {
+                        Value::Empty => {}
+                        Value::List(_) => {}
+                        _ => {
+                            new_value = Some(Value::KeyValue(Box::new(key), Box::new(result)));
+                        }
+                    }
                 }
                 Term::identity => {
                     if self.current_file.is_none() && self.identity.is_none() {
@@ -196,12 +203,9 @@ impl TermsProcessor for TraversalContext<'_> {
                     Value::List(values) => {
                         let lists: Vec<Vec<Value>> = values
                             .iter()
-                            .map(|value| match value {
-                                Value::List(v) => v.clone(),
-                                rawr => panic!(format!(
-                                    "transpose is only supported on lists + {:?}",
-                                    rawr
-                                )),
+                            .filter_map(|value| match value {
+                                Value::List(v) => Some(v.clone()),
+                                _ => None,
                             })
                             .collect();
 
@@ -235,6 +239,7 @@ impl TermsProcessor for TraversalContext<'_> {
                 }
             }
 
+            trace!("identity updated: {:?}", new_value);
             self.identity = new_value.clone(); // yikes
         }
 
@@ -490,16 +495,6 @@ impl TraversalContextImpl for TraversalContext<'_> {
         };
     }
 
-    fn clone(&self) -> TraversalContext {
-        TraversalContext {
-            store: self.store,
-            variables: self.variables.clone(),
-            current_field: self.current_field.clone(),
-            current_file: self.current_file,
-            identity: self.identity.clone(),
-        }
-    }
-
     fn rows_from(&self, filepath: &str, indices: &[u64]) -> Value {
         let foreign_spec = self.store.spec(filepath).unwrap();
         let file = self.store.file(filepath).unwrap();
@@ -524,6 +519,17 @@ impl TraversalContextImpl for TraversalContext<'_> {
             values.first().unwrap_or(&Value::Empty).clone()
         }
     }
+
+    fn clone(&self) -> TraversalContext {
+        TraversalContext {
+            store: self.store,
+            variables: self.variables.clone(),
+            current_field: self.current_field.clone(),
+            current_file: self.current_file,
+            identity: self.identity.clone(),
+        }
+    }
+
     // current value can be large datasets
     fn clone_with_value(&self, value: Option<Value>) -> TraversalContext {
         TraversalContext {

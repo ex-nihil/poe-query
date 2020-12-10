@@ -12,7 +12,7 @@ pub enum Term {
     by_index(usize),
     by_index_reverse(usize),
     slice(usize, usize),
-    kv(Vec<Term>, Vec<Term>),
+    kv(Box<Term>, Vec<Term>),
     object(Vec<Term>),
     array(Vec<Term>),
     select(Vec<Term>, Compare, Vec<Term>),
@@ -106,7 +106,7 @@ fn build_ast(pair: pest::iterators::Pair<Rule>, dst: &mut Vec<Term>) {
                 Term::transpose, 
                 Term::map(vec![
                     Term::object(vec![
-                        Term::kv(vec![Term::name(vec![Term::by_index(0)])], vec![Term::by_index(1)])
+                        Term::kv(Box::new(Term::name(vec![Term::by_index(0)])), vec![Term::by_index(1)])
                     ])
                 ]),
                 Term::reduce(
@@ -163,22 +163,13 @@ fn build_ast(pair: pest::iterators::Pair<Rule>, dst: &mut Vec<Term>) {
                 match pair.as_rule() {
                     Rule::comma => object_terms.push(to_term(pair)),
                     _ => {
-                        let mut key_terms = Vec::new();
                         let mut content = pair.into_inner();
-                        match content.next() {
-                            Some(p) => {
-                                // TODO: handle multiple
-                                key_terms.push(to_term(p))
-                            },
-                            None => {
-                                panic!("Introduced a new construct without updating term parser?")
-                            }
-                        };
                         let mut kv_terms = Vec::new();
                         while let Some(next) = content.next() {
                             build_ast(next, &mut kv_terms);
                         }
-                        object_terms.push(Term::kv(key_terms, kv_terms));
+                        let key = kv_terms.first().unwrap();
+                        object_terms.push(Term::kv(Box::new(key.clone()), kv_terms[1..].to_vec()));
                     }
                 }
             }

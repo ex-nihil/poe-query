@@ -1,5 +1,7 @@
 use std::ops;
+use std::process;
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
+use log::*;
 
 #[derive(Debug, Clone, PartialOrd, PartialEq)]
 pub enum Value {
@@ -98,7 +100,9 @@ impl Serialize for Value {
                     let mut map = serializer.serialize_map(Some(list.len()))?;
                     for value in list {
                         match value {
-                            Value::KeyValue(k, v) => map.serialize_entry(&*k, &*v)?,
+                            Value::KeyValue(k, v) => {
+                                map.serialize_entry(&*k, &*v)?
+                            },
                             _ => panic!("object contained an unexpected value"),
                         }
                     }
@@ -107,8 +111,12 @@ impl Serialize for Value {
                     let mut map = serializer.serialize_map(Some(1))?;
                     map.serialize_entry(&*k, &*v)?;
                     map.end()
+                } else if let Value::Empty = *content.clone() {
+                    let map = serializer.serialize_map(Some(1))?;
+                    map.end()
                 } else {
-                    panic!("object contained an unexpected value");
+                    error!("object contained an unexpected value: {:?}", content);
+                    process::exit(-1);
                 }
             }
             Value::List(list) => {
