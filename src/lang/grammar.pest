@@ -51,7 +51,7 @@ bool_expression = _{ query+ ~ compare ~ query+ }
 
 
 field = { identifier }
-key = { identifier ~ ":" }
+key = {  (filter | datatypes) ~ ":" }
 
 named_query = { key ~ (!("," ~ &key) ~ query)+ }
 object_construct = { "{" ~ (named_query ~ operator?)+ ~ "}" }

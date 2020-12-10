@@ -150,9 +150,10 @@ impl TermsProcessor for TraversalContext<'_> {
                         new_value = Some(Value::Object(Box::new(output)));
                     }
                 }
-                Term::kv(key, kv_terms) => {
-                    let result = self.clone().process(&kv_terms.to_vec());
-                    new_value = Some(Value::KeyValue(key.to_string(), Box::new(result)));
+                Term::kv(key_terms, value_terms) => {
+                    let key = self.clone().process(&key_terms.to_vec());
+                    let result = self.clone().process(&value_terms.to_vec());
+                    new_value = Some(Value::KeyValue(Box::new(key), Box::new(result)));
                 }
                 Term::identity => {
                     if self.current_file.is_none() && self.identity.is_none() {
@@ -165,7 +166,7 @@ impl TermsProcessor for TraversalContext<'_> {
                                 let file = self.store.file(&spec.filename).unwrap();
 
                                 Value::KeyValue(
-                                    spec.export.to_string(),
+                                    Box::new(Value::Str(spec.export.to_string())),
                                     Box::new(Value::List(vec![Value::Str(format!(
                                         "list containing {} rows",
                                         file.rows_count
@@ -184,6 +185,9 @@ impl TermsProcessor for TraversalContext<'_> {
                         Value::Empty => Some(Value::List(Vec::with_capacity(0))),
                         _ => Some(result),
                     };
+                }
+                Term::name(terms) => {
+                    new_value = self.clone().traverse_terms_inner(terms);
                 }
                 Term::string(text) => {
                     new_value = Some(Value::Str(text.to_string()));
@@ -271,7 +275,7 @@ impl TraversalContextImpl for TraversalContext<'_> {
                         .map(move |field| {
                             let row_offset = file.rows_begin + i as usize * file.row_size;
                             Value::KeyValue(
-                                field.name.clone(),
+                                Box::new(Value::Str(field.name.clone())),
                                 Box::new(file.read(row_offset, &field)),
                             )
                         })
@@ -414,7 +418,7 @@ impl TraversalContextImpl for TraversalContext<'_> {
                             .iter()
                             .filter_map(|field| match field {
                                 Value::KeyValue(key, value) => {
-                                    if key == &self.current_field.clone().unwrap() {
+                                    if **key == Value::Str(self.current_field.clone().unwrap()) {
                                         Some(*value.clone())
                                     } else {
                                         None
@@ -426,8 +430,10 @@ impl TraversalContextImpl for TraversalContext<'_> {
 
                         values.first().unwrap_or(&Value::Empty).clone()
                     }
+
+                    //Box::new(Value::Str(field.name.clone())),
                     Value::KeyValue(key, value) => {
-                        if key == self.current_field.clone().unwrap() {
+                        if *key == Value::Str(self.current_field.clone().unwrap()) {
                             *value.clone()
                         } else {
                             Value::Empty
@@ -442,7 +448,7 @@ impl TraversalContextImpl for TraversalContext<'_> {
                     .iter()
                     .map(|value| match value {
                         Value::KeyValue(k, v) => {
-                            if self.current_field.clone().unwrap() == k.as_str() {
+                            if Value::Str(self.current_field.clone().unwrap()) == **k {
                                 *v.clone()
                             } else {
                                 Value::Empty
@@ -456,7 +462,7 @@ impl TraversalContextImpl for TraversalContext<'_> {
                             obj.iter()
                                 .filter_map(|field| match field {
                                     Value::KeyValue(k, v) => {
-                                        if self.current_field.clone().unwrap() == k.as_str() {
+                                        if Value::Str(self.current_field.clone().unwrap()) == **k {
                                             Some(*v.clone())
                                         } else {
                                             None
@@ -485,7 +491,7 @@ impl TraversalContextImpl for TraversalContext<'_> {
                     .iter()
                     .map(move |field| {
                         let row_offset = file.rows_begin + i as usize * file.row_size;
-                        Value::KeyValue(field.name.clone(), Box::new(file.read(row_offset, &field)))
+                        Value::KeyValue(Box::new(Value::Str(field.name.clone())), Box::new(file.read(row_offset, &field)))
                     })
                     .collect();
 
@@ -518,7 +524,7 @@ impl TraversalContextImpl for TraversalContext<'_> {
                     .map(move |field| {
                         let row_offset =
                             file.rows_begin + usize::try_from(*i).unwrap() * file.row_size;
-                        Value::KeyValue(field.name.clone(), Box::new(file.read(row_offset, &field)))
+                        Value::KeyValue(Box::new(Value::Str(field.name.clone())), Box::new(file.read(row_offset, &field)))
                     })
                     .collect();
                 Value::Object(Box::new(Value::List(kv_list)))

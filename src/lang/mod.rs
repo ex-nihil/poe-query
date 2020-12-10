@@ -12,7 +12,7 @@ pub enum Term {
     by_index(usize),
     by_index_reverse(usize),
     slice(usize, usize),
-    kv(String, Vec<Term>),
+    kv(Vec<Term>, Vec<Term>),
     object(Vec<Term>),
     array(Vec<Term>),
     select(Vec<Term>, Compare, Vec<Term>),
@@ -21,6 +21,7 @@ pub enum Term {
     equal,
     pipe,
     string(String),
+    name(Vec<Term>),
     set_variable(String),
     get_variable(String),
     unsigned_number(u64),
@@ -158,6 +159,14 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
             let text = inner.next().unwrap().as_str();
             Term::get_variable(text.to_string())
         }
+        Rule::key => {
+            let inner = pair.into_inner();
+            let mut terms = Vec::new();
+            for next in inner {
+                build_ast(next, &mut terms);
+            }
+            Term::name(terms)
+        }
         Rule::index => {
             let ident = pair.into_inner().next().unwrap().as_str();
             let index = ident.parse::<usize>().unwrap();
@@ -257,9 +266,13 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
                 match pair.as_rule() {
                     Rule::comma => object_terms.push(to_term(pair)),
                     _ => {
+                        let mut key_terms = Vec::new();
                         let mut content = pair.into_inner();
-                        let ident = match content.next() {
-                            Some(p) => p.into_inner().as_str(),
+                        match content.next() {
+                            Some(p) => {
+                                // TODO: handle multiple
+                                key_terms.push(to_term(p))
+                            },
                             None => {
                                 panic!("Introduced a new construct without updating term parser?")
                             }
@@ -268,7 +281,7 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
                         while let Some(next) = content.next() {
                             kv_terms.push(to_term(next));
                         }
-                        object_terms.push(Term::kv(ident.to_string(), kv_terms));
+                        object_terms.push(Term::kv(key_terms, kv_terms));
                     }
                 }
             }

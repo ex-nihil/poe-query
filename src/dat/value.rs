@@ -9,7 +9,7 @@ pub enum Value {
     I64(i64),
     List(Vec<Value>),
     Iterator(Vec<Value>),
-    KeyValue(String, Box<Value>),
+    KeyValue(Box<Value>, Box<Value>),
     Object(Box<Value>), // TODO: make this a map instead
     Bool(bool),
     Empty,
@@ -98,14 +98,14 @@ impl Serialize for Value {
                     let mut map = serializer.serialize_map(Some(list.len()))?;
                     for value in list {
                         match value {
-                            Value::KeyValue(k, v) => map.serialize_entry(k.as_str(), &*v)?,
+                            Value::KeyValue(k, v) => map.serialize_entry(&*k, &*v)?,
                             _ => panic!("object contained an unexpected value"),
                         }
                     }
                     map.end()
                 } else if let Value::KeyValue(k, v) = *content.clone() {
                     let mut map = serializer.serialize_map(Some(1))?;
-                    map.serialize_entry(k.as_str(), &*v)?;
+                    map.serialize_entry(&*k, &*v)?;
                     map.end()
                 } else {
                     panic!("object contained an unexpected value");
