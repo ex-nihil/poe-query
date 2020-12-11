@@ -79,8 +79,18 @@ fn main() {
     let value = navigator.process(&terms);
     let query_ms = now.elapsed().as_millis();
 
-    let serialized = serde_json::to_string_pretty(&value).unwrap();
-    println!("{}", serialized);
+    match value {
+        Value::Iterator(items) => {
+            items.iter().for_each(|item| {
+                let serialized = serde_json::to_string_pretty(item).unwrap();
+                println!("{}", serialized);
+            });
+        },
+        _ => {
+            let serialized = serde_json::to_string_pretty(&value).unwrap();
+            println!("{}", serialized);
+        },
+    };
 
     info!("setup spent: {}ms", read_index_ms);
     info!("query spent: {}ms", query_ms);

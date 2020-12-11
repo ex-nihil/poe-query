@@ -13,7 +13,7 @@ pub enum Value {
     List(Vec<Value>),
     Iterator(Vec<Value>),
     KeyValue(Box<Value>, Box<Value>),
-    Object(Box<Value>), // TODO: make this a map instead?
+    Object(Box<Value>), // Make this a map instead? Comparisons might be a problem.
     Bool(bool),
     Empty,
 }
@@ -68,28 +68,30 @@ impl Serialize for Value {
         S: Serializer,
     {
         match self {
-            Value::Object(content) => {
-                if let Value::List(list) = *content.clone() {
+            Value::Object(content) => match *content.clone() {
+                Value::List(list) => {
                     let mut map = serializer.serialize_map(Some(list.len()))?;
                     for value in list {
-                        match value {
-                            Value::KeyValue(k, v) => map.serialize_entry(&*k, &*v)?,
-                            _ => panic!("object contained an unexpected value"),
+                        if let Value::KeyValue(k, v) = value {
+                            map.serialize_entry(k.as_ref(), v.as_ref())?
+                        } else {
+                            error!("object contained an unexpected value: {:?}", content);
+                            process::exit(-1);
                         }
                     }
                     map.end()
-                } else if let Value::KeyValue(k, v) = *content.clone() {
+                }
+                Value::KeyValue(k, v) => {
                     let mut map = serializer.serialize_map(Some(1))?;
                     map.serialize_entry(&*k, &*v)?;
                     map.end()
-                } else if let Value::Empty = *content.clone() {
-                    let map = serializer.serialize_map(Some(1))?;
-                    map.end()
-                } else {
+                }
+                Value::Empty => serializer.serialize_map(Some(0))?.end(),
+                _ => {
                     error!("object contained an unexpected value: {:?}", content);
                     process::exit(-1);
                 }
-            }
+            },
             Value::List(list) => {
                 let mut seq = serializer.serialize_seq(Some(list.len()))?;
                 for value in list {
