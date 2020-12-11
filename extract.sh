@@ -1,3 +1,4 @@
 #!/usr/bin/env bash
 
-RUST_BACKTRACE=1 cargo run -- -vv -p ~/code/poe-files/ "$(< examples/mods.pql)"
+cargo build --release
+./target/release/poe_query -v -p ~/code/poe-files/ "$(< examples/mods.pql)"

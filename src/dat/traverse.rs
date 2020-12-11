@@ -326,7 +326,7 @@ impl TraversalContextImpl for TraversalContext<'_> {
                 let ids: Vec<u64> = match v {
                     Value::List(ids) => ids.clone(),     // TODO: yikes
                     Value::Iterator(ids) => ids.clone(), // TODO: yikes
-                    Value::U64(id) => vec![Value::U64(*id)],
+                    Value::U64(id) => vec![Value::U64(id)],
                     Value::Empty => vec![],
                     item => panic!(format!("Not a valid id for foreign key: {:?}", item)),
                 }
@@ -545,13 +545,14 @@ impl TraversalContextImpl for TraversalContext<'_> {
 // TODO: move this somewhere else
 fn iterate<F>(value: &Value, action: F) -> Value
 where
-    F: Fn(&Value) -> Option<Value>,
+    F: Fn(Value) -> Option<Value> + Send + Sync,
 {
+    use rayon::prelude::*;
     match value {
         Value::Iterator(elements) => {
-            Value::List(elements.iter().filter_map(|e| action(e)).collect())
+            Value::List(elements.par_iter().filter_map(|e| action(e.clone())).collect())
         }
-        _ => action(value).expect("non-iterable must return something"),
+        _ => action(value.clone()).expect("non-iterable must return something"),
     }
 }
 

@@ -413,6 +413,7 @@ dependencies = [
  "pest",
  "pest_derive",
  "poe_bundle_reader",
+ "rayon",
  "serde",
  "serde_json",
  "serde_yaml",

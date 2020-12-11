@@ -1,4 +1,4 @@
-.mods[] select(.id == "MovementVelocityWeaponInfluence2")[] | 
+.mods[] | 
 {
     "id": .id,
     "mod_type": .mod_type.name,
