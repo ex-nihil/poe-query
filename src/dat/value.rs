@@ -1,7 +1,8 @@
+use log::*;
+use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
+use std::fmt;
 use std::ops;
 use std::process;
-use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
-use log::*;
 
 #[derive(Debug, Clone, PartialOrd, PartialEq)]
 pub enum Value {
@@ -17,75 +18,47 @@ pub enum Value {
     Empty,
 }
 
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
 impl ops::Add<Value> for Value {
     type Output = Value;
 
     fn add(self, _rhs: Value) -> Value {
-        let result = match self {
-            Value::Str(lhs) => {
-                if let Value::Str(rhs) = _rhs {
-                    Value::Str(format!("{}{}", lhs, rhs))
-                } else {
-                    panic!("operations requires both sides to be of same type");
-                }
-            }
-            Value::U64(lhs) => {
-                if let Value::U64(rhs) = _rhs {
-                    Value::U64(lhs + rhs)
-                } else {
-                    panic!("operations requires both sides to be of same type");
-                }
-            }
-            Value::I64(lhs) => {
-                if let Value::I64(rhs) = _rhs {
-                    Value::I64(lhs + rhs)
-                } else {
-                    panic!("operations requires both sides to be of same type");
-                }
-            }
-            Value::Byte(lhs) => {
-                if let Value::Byte(rhs) = _rhs {
-                    Value::Byte(lhs + rhs)
-                } else {
-                    panic!("operations requires both sides to be of same type");
-                }
-            }
-            Value::List(lhs) => {
-                if let Value::List(rhs) = _rhs {
-                    Value::List([&lhs[..], &rhs[..]].concat())
-                } else {
-                    panic!("operations requires both sides to be of same type");
-                }
-            }
-            Value::Object(boxed_lhs) => {
-                // TODO: this feels atrocious, search for a better way 
-                let rhs = match _rhs {
-                    Value::Object(boxed_rhs) => {
-                        match *boxed_rhs {
-                            Value::List(rhs) => rhs,
-                            Value::KeyValue(_, _) => vec![*boxed_rhs],
-                            Value::Empty => vec![],
-                            _ => panic!("operations requires both sides to be of same type"),
-                        }
-                    }
-                    _ => panic!("operations requires both sides to be of same type"),
+        use Value::*;
+        match (self, _rhs) {
+            (Empty, Empty) => Empty,
+            (Str(lhs), Str(rhs)) => Str(format!("{}{}", lhs, rhs)),
+            (U64(lhs), U64(rhs)) => U64(lhs + rhs),
+            (I64(lhs), I64(rhs)) => I64(lhs + rhs),
+            (Byte(lhs), Byte(rhs)) => Byte(lhs + rhs),
+            (List(lhs), List(rhs)) => List([&lhs[..], &rhs[..]].concat()),
+            (Iterator(lhs), Iterator(rhs)) => Iterator([&lhs[..], &rhs[..]].concat()),
+            (Object(lhs), Object(rhs)) => {
+                let lhs_content = match *lhs {
+                    Value::List(list) => list,
+                    Value::KeyValue(_, _) => vec![*lhs],
+                    Value::Empty => vec![],
+                    _ => panic!("object contained unknown type"),
                 };
-
-                let result = match *boxed_lhs {
-                    Value::List(lhs) => Value::List([&lhs[..], &rhs[..]].concat()),
-                    Value::KeyValue(_, _) => Value::List([&[*boxed_lhs], &rhs[..]].concat()),
-                    Value::Empty => Value::List(rhs),
-                    _ => panic!("operations requires both sides to be of same type"),
+                let rhs_content = match *rhs {
+                    Value::List(list) => list,
+                    Value::KeyValue(_, _) => vec![*rhs],
+                    Value::Empty => vec![],
+                    _ => panic!("object contained unknown type"),
                 };
-                Value::Object(Box::new(result))
+                Value::Object(Box::new(Value::List(
+                    [&lhs_content[..], &rhs_content[..]].concat(),
+                )))
             }
-            Value::Iterator(_) => {
-                panic!("addition of iterators not yet implemented");
+            (lhs, rhs) => {
+                error!("Operation not supported: {} + {}", lhs, rhs);
+                process::exit(-1);
             }
-            _ => panic!("type does not support add operation"),
-        };
-
-        result
+        }
     }
 }
 
@@ -100,9 +73,7 @@ impl Serialize for Value {
                     let mut map = serializer.serialize_map(Some(list.len()))?;
                     for value in list {
                         match value {
-                            Value::KeyValue(k, v) => {
-                                map.serialize_entry(&*k, &*v)?
-                            },
+                            Value::KeyValue(k, v) => map.serialize_entry(&*k, &*v)?,
                             _ => panic!("object contained an unexpected value"),
                         }
                     }
