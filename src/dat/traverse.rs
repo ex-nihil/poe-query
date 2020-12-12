@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use log::*;
+use std::collections::HashMap;
 
 use super::super::lang::{Compare, Operation, Term};
 use super::file::DatFileRead;
@@ -22,7 +22,7 @@ pub trait TraversalContextImpl {
     fn index(&mut self, index: usize);
     fn slice(&mut self, from: usize, to: usize);
     fn to_iterable(&mut self) -> Value;
-    fn value(&mut self) -> Value;
+    fn value(&self) -> Value;
     fn identity(&self) -> Value;
     fn clone(&self) -> TraversalContext;
 
@@ -30,6 +30,7 @@ pub trait TraversalContextImpl {
     fn rows_from(&self, file: &str, indices: &[u64]) -> Value;
     fn clone_with_value(&self, name: Option<Value>) -> TraversalContext;
 }
+
 pub trait TermsProcessor {
     fn process(&mut self, parsed_terms: &Vec<Term>) -> Value;
     fn traverse_term(&mut self, term: &Term) -> Value;
@@ -37,16 +38,20 @@ pub trait TermsProcessor {
 }
 
 impl TermsProcessor for TraversalContext<'_> {
-
     fn process(&mut self, parsed_terms: &Vec<Term>) -> Value {
-        let parts = parsed_terms.split(|term| match term {
-            Term::comma => true,
-            _ => false,
-        });
-
-        let values: Vec<Value> = parts
-            .filter_map(|terms| self.clone().traverse_terms_inner(&terms))
-            .collect();
+        let values: Vec<Value> = if parsed_terms.contains(&Term::comma) {
+            parsed_terms
+                .split(|term| match term {
+                    Term::comma => true,
+                    _ => false,
+                })
+                .filter_map(|terms| self.clone().traverse_terms_inner(&terms))
+                .collect()
+        } else {
+            vec![self
+                .traverse_terms_inner(parsed_terms)
+                .unwrap_or(Value::Empty)]
+        };
 
         self.identity = if values.len() > 1 {
             Some(Value::List(values))
@@ -199,7 +204,7 @@ impl TermsProcessor for TraversalContext<'_> {
                 Term::string(text) => {
                     new_value = Some(Value::Str(text.to_string()));
                 }
-                Term::transpose => match self.identity.clone().unwrap_or(Value::Empty) {
+                Term::transpose => match self.identity.as_ref().unwrap_or(&Value::Empty) {
                     Value::List(values) => {
                         let lists: Vec<Vec<Value>> = values
                             .iter()
@@ -318,7 +323,7 @@ impl TraversalContextImpl for TraversalContext<'_> {
 
             let value = self.identity.clone().unwrap_or(Value::Empty);
             let value = match value {
-                Value::List(items) => Value::Iterator(items),
+                Value::List(items) => Value::Iterator(items.clone()),
                 _ => value,
             };
 
@@ -350,16 +355,16 @@ impl TraversalContextImpl for TraversalContext<'_> {
 
     fn to_iterable(&mut self) -> Value {
         self.enter_foreign();
-        let value = self.identity.clone().unwrap_or(Value::Empty);
+        let value = self.identity.as_ref().unwrap_or(&Value::Empty);
         let iteratable = match value {
-            Value::List(list) => Value::Iterator(list),
-            Value::Iterator(list) => Value::Iterator(list),
+            Value::List(list) => Value::Iterator(list.clone()),
+            Value::Iterator(list) => Value::Iterator(list.clone()),
             Value::Object(content) => {
-                let fields = match *content {
+                let fields = match &**content {
                     Value::List(fields) => fields,
                     _ => panic!("attempt to iterate an empty object"),
                 };
-                Value::Iterator(fields)
+                Value::Iterator(fields.clone())
             }
             Value::Empty => Value::Iterator(Vec::with_capacity(0)),
             obj => panic!(format!(
@@ -371,7 +376,7 @@ impl TraversalContextImpl for TraversalContext<'_> {
     }
 
     fn slice(&mut self, from: usize, to: usize) {
-        let value = self.identity.clone().unwrap_or(Value::Empty);
+        let value = self.identity.as_ref().unwrap_or(&Value::Empty);
         match value {
             Value::List(list) => {
                 self.identity = Some(Value::List(list[from..usize::min(to, list.len())].to_vec()))
@@ -382,7 +387,7 @@ impl TraversalContextImpl for TraversalContext<'_> {
     }
 
     fn index(&mut self, index: usize) {
-        let value = self.identity.clone().unwrap_or(Value::Empty);
+        let value = self.identity.as_ref().unwrap_or(&Value::Empty);
         match value {
             Value::List(list) => match list.get(index) {
                 Some(value) => self.identity = Some(value.clone()),
@@ -400,12 +405,15 @@ impl TraversalContextImpl for TraversalContext<'_> {
         self.identity.clone().unwrap_or(Value::Empty)
     }
 
-    fn value(&mut self) -> Value {
-        let identity = self.identity.clone().unwrap_or(Value::Empty);
-        match identity {
+    fn value(&self) -> Value {
+        if self.identity == None {
+            return Value::Empty;
+        }
+
+        match self.identity.as_ref().unwrap() {
             // TODO: extract to function
             Value::Object(entries) => {
-                let v = match *entries {
+                let v = match &**entries {
                     Value::List(list) => {
                         let values: Vec<Value> = list
                             .iter()
@@ -424,7 +432,7 @@ impl TraversalContextImpl for TraversalContext<'_> {
                         values.first().unwrap_or(&Value::Empty).clone()
                     }
                     Value::KeyValue(key, value) => {
-                        if *key == Value::Str(self.current_field.clone().unwrap()) {
+                        if **key == Value::Str(self.current_field.clone().unwrap()) {
                             *value.clone()
                         } else {
                             Value::Empty
@@ -485,7 +493,10 @@ impl TraversalContextImpl for TraversalContext<'_> {
                     .fields
                     .iter()
                     .map(move |field| {
-                        Value::KeyValue(Box::new(Value::Str(field.name.clone())), Box::new(file.read_field(i, &field)))
+                        Value::KeyValue(
+                            Box::new(Value::Str(field.name.clone())),
+                            Box::new(file.read_field(*i, &field)),
+                        )
                     })
                     .collect();
 
@@ -506,7 +517,10 @@ impl TraversalContextImpl for TraversalContext<'_> {
                     .fields
                     .iter()
                     .map(move |field| {
-                        Value::KeyValue(Box::new(Value::Str(field.name.clone())), Box::new(file.read_field(*i, &field)))
+                        Value::KeyValue(
+                            Box::new(Value::Str(field.name.clone())),
+                            Box::new(file.read_field(*i, &field)),
+                        )
                     })
                     .collect();
                 Value::Object(Box::new(Value::List(kv_list)))
@@ -549,9 +563,12 @@ where
 {
     use rayon::prelude::*;
     match value {
-        Value::Iterator(elements) => {
-            Value::List(elements.par_iter().filter_map(|e| action(e.clone())).collect())
-        }
+        Value::Iterator(elements) => Value::List(
+            elements
+                .par_iter()
+                .filter_map(|e| action(e.clone()))
+                .collect(),
+        ),
         _ => action(value.clone()).expect("non-iterable must return something"),
     }
 }
