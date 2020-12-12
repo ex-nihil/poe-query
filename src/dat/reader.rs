@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 
-use poe_bundle_reader::reader::{BundleReader, BundleReaderRead};
+use poe_bundle::reader::{BundleReader, BundleReaderRead};
 
 use super::file::DatFile;
 use super::file::DatFileRead;
