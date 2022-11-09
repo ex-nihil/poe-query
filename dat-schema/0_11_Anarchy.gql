@@ -1,0 +1,6 @@
+
+type RogueExiles {
+  MonsterVarietiesKey: MonsterVarieties
+  _: bool
+  _: rid
+}

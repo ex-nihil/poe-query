@@ -4,6 +4,10 @@ extern crate pest_derive;
 extern crate log;
 extern crate simplelog;
 
+use std::any::Any;
+use std::collections::HashMap;
+use std::io::{BufReader, Read};
+
 use clap::{App, Arg};
 use simplelog::*;
 use log::*;
@@ -12,10 +16,13 @@ mod dat;
 use dat::reader::{DatContainer, DatContainerImpl};
 use dat::traverse::TermsProcessor;
 use std::time::Instant;
+use apollo_parser::ast::{AstNode, Definition, Type};
+use apollo_parser::SyntaxNode;
 
 pub mod lang;
 pub use dat::value::Value;
 pub use lang::Term;
+use crate::dat::specification::{FieldSpec, FileSpec};
 
 fn main() {
     let matches = App::new("PoE DAT transformer")
@@ -64,14 +71,15 @@ fn main() {
         Config::default(),
         TerminalMode::Mixed,
     )])
-    .unwrap();
+    .expect("logger");
 
-    let query = matches.value_of("query").unwrap();
+    let query = matches.value_of("query").expect("query arg");
+    let path = matches.value_of("path").expect("path arg");
     let terms = lang::parse(query);
     debug!("terms: {:?}", terms);
 
     let mut now = Instant::now();
-    let container = DatContainer::from_install("/Users/nihil/code/poe-files", "spec");
+    let container = DatContainer::from_install(path, "./dat-schema");
     let mut navigator = container.navigate();
     let read_index_ms = now.elapsed().as_millis();
 
@@ -82,12 +90,12 @@ fn main() {
     match value {
         Value::Iterator(items) => {
             items.iter().for_each(|item| {
-                let serialized = serde_json::to_string_pretty(item).unwrap();
+                let serialized = serde_json::to_string_pretty(item).expect("seralized");
                 println!("{}", serialized);
             });
         },
         _ => {
-            let serialized = serde_json::to_string_pretty(&value).unwrap();
+            let serialized = serde_json::to_string_pretty(&value).expect("serialized2");
             println!("{}", serialized);
         },
     };

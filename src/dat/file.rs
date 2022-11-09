@@ -3,6 +3,7 @@ use core::panic;
 use log::*;
 use std::io::Cursor;
 use std::process;
+use poe_bundle::BundleReader;
 
 use super::specification::FieldSpec;
 use super::specification::FileSpec;
@@ -11,7 +12,6 @@ use super::value::Value;
 
 const DATA_SECTION_START: &[u8; 8] = &[0xBB; 8];
 
-#[derive(Debug)]
 pub struct DatFile {
     pub bytes: Vec<u8>,
     pub total_size: usize,
@@ -69,10 +69,11 @@ pub trait DatFileRead {
 impl DatFileRead for DatFile {
 
     fn valid(&self, spec: &FileSpec) {
+        trace!("validate {} against specification", spec.filename);
         let last_field = spec.fields.last();
         if let Some(field) = last_field {
             let spec_row_size = field.offset + FileSpec::field_size(field);
-            let diff = self.row_size as u64 - spec_row_size;
+            let diff = (self.row_size as u64).saturating_sub(spec_row_size);
             if diff != 0 {
                 warn!("Rows in '{}' have {} bytes not defined in spec", spec.filename, diff);
             }
@@ -86,22 +87,6 @@ impl DatFileRead for DatFile {
             error!("Attempt to read outside DAT. This is a bug or the file is corrupted.");
             process::exit(-1);
         }
-    }
-
-    fn read_value(&self, offset: u64, data_type: &str) -> Value {
-        let exact_offset = self.data_section + offset as usize;
-        self.check_offset(exact_offset);
-
-        let mut c = Cursor::new(&self.bytes[exact_offset..]);
-        c.read_value(data_type)
-    }
-
-    fn read_list(&self, offset: u64, len: u64, data_type: &str) -> Vec<Value> {
-        let exact_offset = self.data_section + offset as usize;
-        self.check_offset(exact_offset);
-
-        let mut c = Cursor::new(&self.bytes[exact_offset..]);
-        (0..len).map(|_| c.read_value(data_type)).collect()
     }
 
     fn read_field(&self, row: u64, field: &FieldSpec) -> Value {
@@ -122,6 +107,22 @@ impl DatFileRead for DatFile {
         } else {
             c.read_value(field.datatype.as_str())
         }
+    }
+
+    fn read_value(&self, offset: u64, data_type: &str) -> Value {
+        let exact_offset = self.data_section + offset as usize;
+        self.check_offset(exact_offset);
+
+        let mut c = Cursor::new(&self.bytes[exact_offset..]);
+        c.read_value(data_type)
+    }
+
+    fn read_list(&self, offset: u64, len: u64, data_type: &str) -> Vec<Value> {
+        let exact_offset = self.data_section + offset as usize;
+        self.check_offset(exact_offset);
+
+        let mut c = Cursor::new(&self.bytes[exact_offset..]);
+        (0..len).map(|_| c.read_value(data_type)).collect()
     }
 }
 

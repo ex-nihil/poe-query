@@ -1,0 +1,35 @@
+type ShrineBuffs {
+  Id: string @unique
+  BuffStatValues: [i32]
+  BuffDefinitionsKey: BuffDefinitions
+  BuffVisual: BuffVisuals
+}
+
+type Shrines {
+  Id: string @unique
+  TimeoutInSeconds: i32
+  ChargesShared: bool
+  Player_ShrineBuffsKey: ShrineBuffs
+  _: i32
+  _: i32
+  Monster_ShrineBuffsKey: ShrineBuffs
+  SummonMonster_MonsterVarietiesKey: MonsterVarieties
+  SummonPlayer_MonsterVarietiesKey: MonsterVarieties
+  _: i32
+  _: i32
+  ShrineSoundsKey: ShrineSounds
+  _: bool
+  AchievementItemsKeys: [AchievementItems]
+  IsPVPOnly: bool
+  _: bool
+  IsLesserShrine: bool
+  Description: ClientStrings
+  Name: ClientStrings
+  _: bool
+}
+
+type ShrineSounds {
+  Id: string @unique
+  StereoSoundFile: string @file(ext: ".ogg")
+  MonoSoundFile: string @file(ext: ".ogg")
+}

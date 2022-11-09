@@ -1,7 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::io::Error;
+use apollo_parser::ast::AstNode;
+use log::{debug, error, warn};
 
 use poe_bundle::reader::{BundleReader, BundleReaderRead};
+use crate::FieldSpec;
 
 use super::file::DatFile;
 use super::file::DatFileRead;
@@ -9,48 +13,51 @@ use super::specification::FileSpec;
 use super::traverse::TraversalContext;
 
 pub struct DatContainer {
+    bundle_reader: BundleReader,
     files: HashMap<String, DatFile>,
     specs: HashMap<String, FileSpec>,
 }
 
 // TODO: lazy loading
 impl DatContainer {
+
     pub fn from_install(path: &str, spec_path: &str) -> DatContainer {
-        let paths = fs::read_dir(spec_path).expect("spec path does not exist");
-        let specs: HashMap<String, FileSpec> = paths
-            .filter_map(Result::ok)
-            .map(|d| d.path())
-            .filter(|pb| pb.is_file() && pb.extension().unwrap().to_string_lossy() == "yaml")
-            .map(|pb| {
-                let spec = FileSpec::read(pb.as_path());
-                (spec.filename.clone(), spec)
-            })
-            .collect();
+        let specs = FileSpec::read_all_specs(spec_path);
 
         let bundles = BundleReader::from_install(path);
 
         let dat_files: HashMap<String, DatFile> = specs
             .iter()
+            .filter(|(path, spec)| {
+                debug!("Reading {}", path);
+                match bundles.size_of(path) {
+                    None => {
+                        error!("Unable to read {}", path);
+                        false
+                    }
+                    Some(_) => true
+                }
+            })
             .map(|(path, spec)| {
-                let size = bundles.size_of(path).unwrap();
-                let mut dst = Vec::with_capacity(size);
-                bundles
-                    .write_into(path, &mut dst)
-                    .expect("failed writing DAT file to buffer");
-                let file = DatFile::from_bytes(dst);
+                let size = bundles.size_of(path).expect(format!("bundle size_of {}", path).as_str());
+                let file = match bundles.bytes(path) {
+                    Ok(bytes) => DatFile::from_bytes(bytes),
+                    Err(_) => panic!("unable to read {}", path)
+                };
                 file.valid(spec);
                 (path.clone(), file)
             })
             .collect();
 
         DatContainer {
+            bundle_reader: bundles,
             files: dat_files,
             specs,
         }
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct DatStore<'a> {
     pub files: &'a HashMap<String, DatFile>,
     pub specs: &'a HashMap<String, FileSpec>,

@@ -1,5 +1,6 @@
 use log::*;
 use std::collections::HashMap;
+use crate::dat::file::DatFile;
 
 use super::super::lang::{Compare, Operation, Term};
 use super::file::DatFileRead;
@@ -8,7 +9,6 @@ use super::reader::DatStoreImpl;
 use super::specification::FieldSpecImpl;
 use super::value::Value;
 
-#[derive(Debug)]
 pub struct TraversalContext<'a> {
     pub store: DatStore<'a>,
     pub variables: HashMap<String, Value>,
@@ -62,6 +62,24 @@ impl TermsProcessor for TraversalContext<'_> {
         };
 
         self.identity()
+    }
+
+    fn traverse_term(&mut self, term: &Term) -> Value {
+        match term {
+            Term::by_name(key) => {
+                self.child(key);
+                self.identity()
+            }
+            Term::by_index(i) => {
+                self.index(*i);
+                self.identity()
+            }
+            Term::slice(from, to) => {
+                self.slice(*from, *to);
+                self.identity()
+            }
+            _ => panic!(format!("unhandled term: {:?}", term)),
+        }
     }
 
     // Comma has be dealt with
@@ -175,14 +193,10 @@ impl TermsProcessor for TraversalContext<'_> {
                             .iter()
                             .map(|export| {
                                 let spec = self.store.spec_by_export(export).unwrap();
-                                let file = self.store.file(&spec.filename).unwrap();
 
                                 Value::KeyValue(
                                     Box::new(Value::Str(spec.export.to_string())),
-                                    Box::new(Value::List(vec![Value::Str(format!(
-                                        "list containing {} rows",
-                                        file.rows_count
-                                    ))])),
+                                    Box::new(Value::List(vec![])),
                                 )
                             })
                             .collect();
@@ -250,24 +264,6 @@ impl TermsProcessor for TraversalContext<'_> {
 
         new_value
     }
-
-    fn traverse_term(&mut self, term: &Term) -> Value {
-        match term {
-            Term::by_name(key) => {
-                self.child(key);
-                self.identity()
-            }
-            Term::by_index(i) => {
-                self.index(*i);
-                self.identity()
-            }
-            Term::slice(from, to) => {
-                self.slice(*from, *to);
-                self.identity()
-            }
-            _ => panic!(format!("unhandled term: {:?}", term)),
-        }
-    }
 }
 
 impl TraversalContextImpl for TraversalContext<'_> {
@@ -304,52 +300,29 @@ impl TraversalContextImpl for TraversalContext<'_> {
         }
     }
 
-    fn enter_foreign(&mut self) {
-        let current_spec = self
-            .current_file
-            .map(|file| self.store.spec(file))
-            .flatten();
-        let current_field = current_spec
-            .map(|spec| {
-                spec.fields.iter().find(|&field| {
-                    self.current_field.is_some()
-                        && self.current_field.clone().unwrap() == field.name
-                })
-            })
-            .flatten();
+    fn index(&mut self, index: usize) {
+        let value = self.identity.as_ref().unwrap_or(&Value::Empty);
+        match value {
+            Value::List(list) => match list.get(index) {
+                Some(value) => self.identity = Some(value.clone()),
+                None => panic!("attempt to index outside list"),
+            },
+            Value::Str(str) => match str.chars().nth(index) {
+                Some(value) => self.identity = Some(Value::Str(value.to_string())),
+                None => panic!("attempt to index outside string"),
+            },
+            _ => panic!("attempt to index non-indexable value {:?}", value),
+        }
+    }
 
-        if current_field.is_some() && current_field.unwrap().is_foreign_key() {
-            self.current_field = None;
-
-            let value = self.identity.clone().unwrap_or(Value::Empty);
-            let value = match value {
-                Value::List(items) => Value::Iterator(items.clone()),
-                _ => value,
-            };
-
-            let result = iterate(&value, |v| {
-                let ids: Vec<u64> = match v {
-                    Value::List(ids) => ids.clone(),     // TODO: yikes
-                    Value::Iterator(ids) => ids.clone(), // TODO: yikes
-                    Value::U64(id) => vec![Value::U64(id)],
-                    Value::Empty => vec![],
-                    item => panic!(format!("Not a valid id for foreign key: {:?}", item)),
-                }
-                .iter()
-                .filter_map(|v| match v {
-                    Value::U64(i) => Some(*i),
-                    Value::List(_) => None,
-                    _ => panic!(format!("value {:?}", v)),
-                })
-                .collect();
-
-                let rows = self.rows_from(&current_field.unwrap().file, ids.as_slice());
-                Some(rows)
-            });
-
-            self.current_field = None;
-            self.current_file = Some(current_spec.unwrap().filename.as_str());
-            self.identity = Some(result);
+    fn slice(&mut self, from: usize, to: usize) {
+        let value = self.identity.as_ref().unwrap_or(&Value::Empty);
+        match value {
+            Value::List(list) => {
+                self.identity = Some(Value::List(list[from..usize::min(to, list.len())].to_vec()))
+            }
+            Value::Str(str) => self.identity = Some(Value::Str(str[from..to].to_string())),
+            _ => panic!("attempt to index non-indexable value {:?}", value),
         }
     }
 
@@ -373,36 +346,6 @@ impl TraversalContextImpl for TraversalContext<'_> {
             )),
         };
         iteratable
-    }
-
-    fn slice(&mut self, from: usize, to: usize) {
-        let value = self.identity.as_ref().unwrap_or(&Value::Empty);
-        match value {
-            Value::List(list) => {
-                self.identity = Some(Value::List(list[from..usize::min(to, list.len())].to_vec()))
-            }
-            Value::Str(str) => self.identity = Some(Value::Str(str[from..to].to_string())),
-            _ => panic!("attempt to index non-indexable value {:?}", value),
-        }
-    }
-
-    fn index(&mut self, index: usize) {
-        let value = self.identity.as_ref().unwrap_or(&Value::Empty);
-        match value {
-            Value::List(list) => match list.get(index) {
-                Some(value) => self.identity = Some(value.clone()),
-                None => panic!("attempt to index outside list"),
-            },
-            Value::Str(str) => match str.chars().nth(index) {
-                Some(value) => self.identity = Some(Value::Str(value.to_string())),
-                None => panic!("attempt to index outside string"),
-            },
-            _ => panic!("attempt to index non-indexable value {:?}", value),
-        }
-    }
-
-    fn identity(&self) -> Value {
-        self.identity.clone().unwrap_or(Value::Empty)
     }
 
     fn value(&self) -> Value {
@@ -506,6 +449,69 @@ impl TraversalContextImpl for TraversalContext<'_> {
         };
     }
 
+    fn identity(&self) -> Value {
+        self.identity.clone().unwrap_or(Value::Empty)
+    }
+
+    fn clone(&self) -> TraversalContext {
+        TraversalContext {
+            store: self.store,
+            variables: self.variables.clone(),
+            current_field: self.current_field.clone(),
+            current_file: self.current_file,
+            identity: self.identity.clone(),
+        }
+    }
+
+    fn enter_foreign(&mut self) {
+        let current_spec = self
+            .current_file
+            .map(|file| self.store.spec(file))
+            .flatten();
+        let current_field = current_spec
+            .map(|spec| {
+                spec.fields.iter().find(|&field| {
+                    self.current_field.is_some()
+                        && self.current_field.clone().unwrap() == field.name
+                })
+            })
+            .flatten();
+
+        if current_field.is_some() && current_field.unwrap().is_foreign_key() {
+            self.current_field = None;
+
+            let value = self.identity.clone().unwrap_or(Value::Empty);
+            let value = match value {
+                Value::List(items) => Value::Iterator(items.clone()),
+                _ => value,
+            };
+
+            let result = iterate(&value, |v| {
+                let ids: Vec<u64> = match v {
+                    Value::List(ids) => ids.clone(),     // TODO: yikes
+                    Value::Iterator(ids) => ids.clone(), // TODO: yikes
+                    Value::U64(id) => vec![Value::U64(id)],
+                    Value::Empty => vec![],
+                    item => panic!(format!("Not a valid id for foreign key: {:?}", item)),
+                }
+                .iter()
+                .filter_map(|v| match v {
+                    Value::U64(i) => Some(*i),
+                    Value::List(_) => None,
+                    _ => panic!(format!("value {:?}", v)),
+                })
+                .collect();
+
+                let rows = self.rows_from(&current_field.unwrap().file, ids.as_slice());
+                Some(rows)
+            });
+
+            self.current_field = None;
+            self.current_file = Some(current_spec.unwrap().filename.as_str());
+            self.identity = Some(result);
+        }
+    }
+
     fn rows_from(&self, filepath: &str, indices: &[u64]) -> Value {
         let foreign_spec = self.store.spec(filepath).unwrap();
         let file = self.store.file(filepath).unwrap();
@@ -531,16 +537,6 @@ impl TraversalContextImpl for TraversalContext<'_> {
             Value::List(values)
         } else {
             values.first().unwrap_or(&Value::Empty).clone()
-        }
-    }
-
-    fn clone(&self) -> TraversalContext {
-        TraversalContext {
-            store: self.store,
-            variables: self.variables.clone(),
-            current_field: self.current_field.clone(),
-            current_file: self.current_file,
-            identity: self.identity.clone(),
         }
     }
 
