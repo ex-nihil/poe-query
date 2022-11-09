@@ -95,9 +95,14 @@ impl DatFileRead for DatFile {
         let exact_offset = row_offset + field.offset as usize;
         let mut c = Cursor::new(&self.bytes[exact_offset..]);
 
+
         let mut parts = field.datatype.split("|");
         let prefix = parts.next();
-        if prefix.filter(|&dtype| "list" == dtype).is_some() {
+        if let Some(enum_spec) = &field.enum_name {
+            let enum_index = c.read_u32::<LittleEndian>().unwrap() as u64;
+            let enum_value = enum_spec.value(enum_index as usize);
+            Value::Str(enum_value)
+        } else if prefix.filter(|&dtype| "list" == dtype).is_some() {
             let length = c.read_u32::<LittleEndian>().unwrap() as u64;
             let offset = c.read_u32::<LittleEndian>().unwrap() as u64;
             Value::List(self.read_list(offset, length, parts.next().unwrap()))

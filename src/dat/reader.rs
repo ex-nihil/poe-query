@@ -5,6 +5,7 @@ use apollo_parser::ast::AstNode;
 use log::{debug, error, warn};
 
 use poe_bundle::reader::{BundleReader, BundleReaderRead};
+use crate::dat::specification::EnumSpec;
 use crate::FieldSpec;
 
 use super::file::DatFile;
@@ -16,13 +17,15 @@ pub struct DatContainer {
     bundle_reader: BundleReader,
     files: HashMap<String, DatFile>,
     specs: HashMap<String, FileSpec>,
+    enums: HashMap<String, EnumSpec>,
 }
 
 // TODO: lazy loading
 impl DatContainer {
 
     pub fn from_install(path: &str, spec_path: &str) -> DatContainer {
-        let specs = FileSpec::read_all_specs(spec_path);
+        let enums = FileSpec::read_all_enum_specs(spec_path);
+        let specs = FileSpec::read_all_specs(spec_path, &enums);
 
         let bundles = BundleReader::from_install(path);
 
@@ -53,6 +56,7 @@ impl DatContainer {
             bundle_reader: bundles,
             files: dat_files,
             specs,
+            enums,
         }
     }
 }
@@ -61,6 +65,7 @@ impl DatContainer {
 pub struct DatStore<'a> {
     pub files: &'a HashMap<String, DatFile>,
     pub specs: &'a HashMap<String, FileSpec>,
+    pub enums: &'a HashMap<String, EnumSpec>,
 }
 
 pub trait DatStoreImpl<'a> {
@@ -68,11 +73,16 @@ pub trait DatStoreImpl<'a> {
     fn spec(&self, path: &str) -> Option<&'a FileSpec>;
     fn spec_by_export(&self, export: &str) -> Option<&'a FileSpec>;
     fn exports(&self) -> HashSet<&str>;
+    fn enum_name(&self, path: &str) -> Option<&'a EnumSpec>;
 }
 
 impl<'a> DatStoreImpl<'a> for DatStore<'a> {
     fn file(&self, path: &str) -> Option<&'a DatFile> {
         self.files.get(path)
+    }
+
+    fn enum_name(&self, path: &str) -> Option<&'a EnumSpec> {
+        self.enums.get(path)
     }
 
     fn spec(&self, path: &str) -> Option<&'a FileSpec> {
@@ -98,6 +108,7 @@ impl DatContainerImpl for DatContainer {
             store: DatStore {
                 files: &self.files,
                 specs: &self.specs,
+                enums: &self.enums,
             },
             variables: HashMap::new(),
             current_field: None,

@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::collections::HashMap;
 use super::util;
 use serde::Deserialize;
@@ -13,10 +14,24 @@ pub struct FileSpec {
 }
 
 #[derive(Debug, PartialEq, Deserialize, Clone)]
+pub struct EnumSpec {
+    name: String,
+    first_index: usize,
+    values: Vec<String>,
+}
+
+impl EnumSpec {
+    pub fn value(&self, index: usize) -> String {
+        self.values.get(index - self.first_index).unwrap_or(&"".to_string()).to_string()
+    }
+}
+
+#[derive(Debug, PartialEq, Deserialize, Clone)]
 pub struct FieldSpec {
     pub name: String,
     pub datatype: String,
     pub file: String,
+    pub enum_name: Option<EnumSpec>,
     pub offset: u64,
 }
 
@@ -30,9 +45,77 @@ fn empty() -> String {
 
 impl FileSpec {
 
-    pub fn read_all_specs(path: &str) -> HashMap<String, FileSpec> {
+    pub fn read_all_enum_specs(path: &str) -> HashMap<String, EnumSpec> {
+
+        use apollo_parser::Parser;
+        use apollo_parser::ast::Definition;
+        use apollo_parser::ast::Type;
+
+
+        let mut enum_specs: HashMap<_, _> = HashMap::new();
+
+        let paths = std::fs::read_dir(path).expect("spec path does not exist");
+        let mut asd: Vec<_> = paths
+            .filter_map(Result::ok)
+            .map(|d| d.path())
+            .filter(|pb| pb.is_file() && pb.extension().expect("gql file not found").to_string_lossy() == "gql")
+            //.map(|p| p.as_path())
+            .collect();
+
+        asd.sort(); // TODO: RIP core is last if sorted alphabetically
+
+        asd.iter().for_each(|pb| {
+            //println!("Path: {:?}", pb);
+            let text = std::fs::read_to_string(pb).unwrap();
+
+            let parser = Parser::new(&text);
+            let ast = parser.parse();
+
+            assert_eq!(ast.errors().len(), 0);
+            for def in ast.document().definitions() {
+                match def {
+                    Definition::ObjectTypeDefinition(obj) => {}
+                    Definition::EnumTypeDefinition(obj) => {
+                        println!("enum {}", obj.name().unwrap().text());
+                        let enum_name = obj.name().unwrap().text();
+
+                        let mut index = 0;
+                        for directive in obj.directives().unwrap().directives() {
+                            match directive.name().unwrap().text().as_str() {
+                                "indexing" => {
+                                    let first = directive.arguments().unwrap().arguments().find(|x| x.name().unwrap().text() == "first").unwrap().value().unwrap().syntax().text().to_string();
+                                    index = first.parse::<usize>().unwrap();
+                                }
+                                _ => {}
+                            }
+                        }
+                        let mut values = Vec::new();
+                        for field in obj.enum_values_definition().unwrap().enum_value_definitions() {
+
+                            let value = field.enum_value().unwrap().name().unwrap().text();
+                            let type_syntax = obj.type_id();
+
+                            values.push(value.to_string())
+                        }
+
+                        enum_specs.insert(enum_name.to_string(), EnumSpec {
+                            name: enum_name.to_string(),
+                            first_index: index,
+                            values
+                        });
+
+                    }
+                    def => unimplemented!("Unhandled definition: {:?}", def),
+                }
+            }
+        });
+        return enum_specs;
+    }
+
+    pub fn read_all_specs(path: &str, enum_specs: &HashMap<String, EnumSpec>) -> HashMap<String, FileSpec> {
 
         let whitelist = vec![
+            "Words"
         ];
 
         let blacklist = vec![
@@ -75,7 +158,6 @@ impl FileSpec {
             let parser = Parser::new(&text);
             let ast = parser.parse();
 
-
             assert_eq!(ast.errors().len(), 0);
             for def in ast.document().definitions() {
                 match def {
@@ -113,20 +195,16 @@ impl FileSpec {
                                 node => unimplemented!("Unhandled node: {:?}", node),
                             };
 
-
                             let key_file = match asd.as_str() {
                                 "i32" | "bool" | "rid" | "string" | "f32" => None,
                                 t => {
                                     Some(t.to_string())
                                 }
                             };
-/*
-                            match key_file {
-                                None => {}
-                                Some(x) => error!("type: {}", x)
-                            }
-*/
-                            let type_value = match (is_list, &key_file) {
+
+                            let enum_spec: Option<&EnumSpec> = key_file.as_ref().map(|x| enum_specs.get(x)).flatten();
+
+                            let mut type_value = match (is_list, &key_file) {
                                 (true, Some(file)) => {
                                     "list|ptr".to_string()
                                 }
@@ -141,28 +219,19 @@ impl FileSpec {
                                 }.to_string(),
                             };
 
-/*
-                            let kind = type_syntax.kind();
-
-                            let mut converted_type = match asd.as_str() {
-                                "string" => "ref|string",
-                                "rid" => "u32",
-                                t => t
-                            };
-
-
-                            if key_file.is_some() {
-                                converted_type = "ptr";
+                            if enum_spec.is_some() {
+                                type_value = "u32".to_string();
                             }
 
- */
                             fields.push(FieldSpec {
                                 name: name.to_string(),
                                 datatype: type_value.to_string(),
-                                file: key_file.map(|file| format!("Data/{}.dat", file)).unwrap_or("".to_string()) ,
+                                file: key_file.as_ref().map(|file| format!("Data/{}.dat", file)).unwrap_or("".to_string()) ,
+                                enum_name: enum_spec.map(|x| x.clone()),
                                 offset: current_offset
                             });
                         }
+
 
                         for field in &fields {
                             warn!("{:?}", field);
@@ -173,12 +242,7 @@ impl FileSpec {
                             export: filename
                         });
                     }
-                    Definition::EnumTypeDefinition(obj) => {
-                        //println!("enum {}", obj.name().unwrap().text());
-                        for field in obj.enum_values_definition().unwrap().enum_value_definitions() {
-                            //println!("\t{}", field.enum_value().unwrap().name().unwrap().text());
-                        }
-                    }
+                    Definition::EnumTypeDefinition(obj) => {}
                     def => unimplemented!("Unhandled definition: {:?}", def),
                 }
             }
@@ -203,6 +267,7 @@ fn update_with_offsets(fields: Vec<FieldSpec>) -> Vec<FieldSpec> {
         .map(|field| {
             let updated = FieldSpec {
                 offset,
+                enum_name: field.enum_name.clone(),
                 name: field.name.clone(),
                 datatype: field.datatype.clone(),
                 file: field.file.clone(),
