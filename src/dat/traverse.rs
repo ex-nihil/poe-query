@@ -78,7 +78,7 @@ impl TermsProcessor for TraversalContext<'_> {
                 self.slice(*from, *to);
                 self.identity()
             }
-            _ => panic!(format!("unhandled term: {:?}", term)),
+            _ => panic!("unhandled term: {:?}", term),
         }
     }
 
@@ -245,7 +245,7 @@ impl TermsProcessor for TraversalContext<'_> {
                             .collect();
                         new_value = Some(Value::List(outer));
                     }
-                    rawr => panic!(format!("transpose is only supported on lists - {:?}", rawr)),
+                    rawr => panic!("transpose is only supported on lists - {:?}", rawr),
                 },
                 Term::unsigned_number(value) => {
                     new_value = Some(Value::U64(*value));
@@ -340,10 +340,10 @@ impl TraversalContextImpl for TraversalContext<'_> {
                 Value::Iterator(fields.clone())
             }
             Value::Empty => Value::Iterator(Vec::with_capacity(0)),
-            obj => panic!(format!(
+            obj => panic!(
                 "unable to iterate, should i support this? {:?}",
                 obj
-            )),
+            ),
         };
         iteratable
     }
@@ -381,7 +381,7 @@ impl TraversalContextImpl for TraversalContext<'_> {
                             Value::Empty
                         }
                     }
-                    _ => panic!(format!("failed to extract value from kv! {:?}", entries)),
+                    _ => panic!("failed to extract value from kv! {:?}", entries),
                 };
                 return v.clone();
             }
@@ -399,7 +399,7 @@ impl TraversalContextImpl for TraversalContext<'_> {
                         Value::Object(elements) => {
                             let obj = match *elements.clone() {
                                 Value::List(fields) => fields,
-                                _ => panic!(format!("uhm: {:?}", elements)),
+                                _ => panic!("uhm: {:?}", elements),
                             };
                             obj.iter()
                                 .filter_map(|field| match field {
@@ -410,17 +410,17 @@ impl TraversalContextImpl for TraversalContext<'_> {
                                             None
                                         }
                                     }
-                                    asd => panic!(format!("what happened? {:?}", asd)),
+                                    asd => panic!("what happened? {:?}", asd),
                                 })
                                 .collect::<Vec<Value>>()
                                 .first()
                                 .unwrap_or(&Value::Empty)
                                 .clone()
                         }
-                        val => panic!(format!(
+                        val => panic!(
                             "Attempting to get field of non-iterable and non-object. {:?}",
                             val
-                        )),
+                        ),
                     })
                     .collect();
 
@@ -492,13 +492,13 @@ impl TraversalContextImpl for TraversalContext<'_> {
                     Value::Iterator(ids) => ids.clone(), // TODO: yikes
                     Value::U64(id) => vec![Value::U64(id)],
                     Value::Empty => vec![],
-                    item => panic!(format!("Not a valid id for foreign key: {:?}", item)),
+                    item => panic!("Not a valid id for foreign key: {:?}", item),
                 }
                 .iter()
                 .filter_map(|v| match v {
                     Value::U64(i) => Some(*i),
                     Value::List(_) => None,
-                    _ => panic!(format!("value {:?}", v)),
+                    _ => panic!("value {:?}", v),
                 })
                 .collect();
 

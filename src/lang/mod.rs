@@ -259,7 +259,7 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
                             Rule::not_equal => Compare::not_equals,
                             Rule::less_than => Compare::less_than,
                             Rule::greater_than => Compare::greater_than,
-                            p => panic!(format!("Operation not implemented: {:?}", p)),
+                            p => panic!("Operation not implemented: {:?}", p),
                         };
                         current = &mut rhs;
                     }
