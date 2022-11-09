@@ -1,28 +1,24 @@
+extern crate log;
 extern crate pest;
 #[macro_use]
 extern crate pest_derive;
-extern crate log;
 extern crate simplelog;
 
-use std::any::Any;
-use std::collections::HashMap;
-use std::io::{BufReader, Read};
+
+use std::time::Instant;
 
 use clap::{App, Arg};
-use simplelog::*;
 use log::*;
+use poe_bundle::BundleReader;
+use simplelog::*;
 
-mod dat;
 use dat::reader::{DatContainer, DatContainerImpl};
 use dat::traverse::TermsProcessor;
-use std::time::Instant;
-use apollo_parser::ast::{AstNode, Definition, Type};
-use apollo_parser::SyntaxNode;
-
-pub mod lang;
 pub use dat::value::Value;
 pub use lang::Term;
-use crate::dat::specification::{FieldSpec, FileSpec};
+
+mod dat;
+pub mod lang;
 
 fn main() {
     let matches = App::new("PoE DAT transformer")
@@ -79,7 +75,9 @@ fn main() {
     debug!("terms: {:?}", terms);
 
     let mut now = Instant::now();
-    let container = DatContainer::from_install(path, "./dat-schema");
+
+    let bundles = BundleReader::from_install(path);
+    let container = DatContainer::from_install(&bundles, "./dat-schema");
     let mut navigator = container.navigate();
     let read_index_ms = now.elapsed().as_millis();
 

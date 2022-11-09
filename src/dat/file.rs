@@ -3,7 +3,6 @@ use core::panic;
 use log::*;
 use std::io::Cursor;
 use std::process;
-use poe_bundle::BundleReader;
 
 use super::specification::FieldSpec;
 use super::specification::FileSpec;
@@ -11,6 +10,7 @@ use super::util;
 use super::value::Value;
 
 const DATA_SECTION_START: &[u8; 8] = &[0xBB; 8];
+
 
 pub struct DatFile {
     pub bytes: Vec<u8>,
@@ -27,10 +27,11 @@ const EMPTY_DAT: DatFile = DatFile {
     rows_begin: 0,
     data_section: 0,
     rows_count: 0,
-    row_size: 0,
+    row_size: 0
 };
 
 impl DatFile {
+
     pub fn from_bytes(bytes: Vec<u8>) -> DatFile {
         if bytes.is_empty() {
             panic!("bytes was empty");
@@ -53,7 +54,7 @@ impl DatFile {
             rows_begin,
             data_section,
             rows_count,
-            row_size,
+            row_size
         }
     }
 }
@@ -69,13 +70,15 @@ pub trait DatFileRead {
 impl DatFileRead for DatFile {
 
     fn valid(&self, spec: &FileSpec) {
-        trace!("validate {} against specification", spec.filename);
+        debug!("validate {} against specification", spec.filename);
         let last_field = spec.fields.last();
         if let Some(field) = last_field {
-            let spec_row_size = field.offset + FileSpec::field_size(field);
-            let diff = (self.row_size as u64).saturating_sub(spec_row_size);
-            if diff != 0 {
-                warn!("Rows in '{}' have {} bytes not defined in spec", spec.filename, diff);
+            let spec_row_size = (field.offset + FileSpec::field_size(field)) as usize;
+            if self.row_size > spec_row_size {
+                warn!("Spec for '{}' missing {} bytes", spec.filename, self.row_size - spec_row_size);
+            }
+            if spec_row_size > self.row_size {
+                warn!("Spec for '{}' overflows by {} bytes", spec.filename, spec_row_size - self.row_size);
             }
         } else {
             warn!("Spec for {} does not contain fields", spec.filename);
@@ -90,28 +93,54 @@ impl DatFileRead for DatFile {
     }
 
     fn read_field(&self, row: u64, field: &FieldSpec) -> Value {
-        trace!("reading {:?} from row {}", field, row);
         let row_offset = self.rows_begin + row as usize * self.row_size;
         let exact_offset = row_offset + field.offset as usize;
+
+        if field.offset as usize > self.row_size {
+            // Spec describes more data than is in the row
+            return Value::Empty;
+        }
+
         let mut c = Cursor::new(&self.bytes[exact_offset..]);
+        debug!("reading {:?} from row {}", field, row);
 
 
         let mut parts = field.datatype.split("|");
         let prefix = parts.next();
-        if let Some(enum_spec) = &field.enum_name {
-            let enum_index = c.read_u32::<LittleEndian>().unwrap() as u64;
-            let enum_value = enum_spec.value(enum_index as usize);
-            Value::Str(enum_value)
+        let result = if let Some(enum_spec) = &field.enum_name {
+            match c.u32() {
+                Value::U64(v) => Value::Str(enum_spec.value(v as usize)),
+                Value::Empty => Value::Empty,
+                x => panic!("{}", x)
+            }
         } else if prefix.filter(|&dtype| "list" == dtype).is_some() {
-            let length = c.read_u32::<LittleEndian>().unwrap() as u64;
-            let offset = c.read_u32::<LittleEndian>().unwrap() as u64;
-            Value::List(self.read_list(offset, length, parts.next().unwrap()))
+            //let length = c.read_u32::<LittleEndian>().unwrap() as u64;
+            //let offset = c.read_u32::<LittleEndian>().unwrap() as u64;
+            let length = c.u32();
+            let offset = c.u32();
+            match (offset, length) {
+                (Value::U64(o), Value::U64(len)) => Value::List(self.read_list(o, len, parts.next().unwrap())),
+                _ => Value::Empty
+            }
+            //warn!("list {} len({})", offset, length);
+            //Value::List(self.read_list(offset, length, parts.next().unwrap()))
         } else if prefix.filter(|&dtype| "ref" == dtype).is_some() {
-            let offset = c.read_u32::<LittleEndian>().unwrap();
-            self.read_value(offset as u64, parts.next().unwrap())
+
+            match c.u32() {
+                Value::U64(offset) => self.read_value(offset, parts.next().unwrap()),
+                Value::Empty => Value::Empty,
+                x => panic!("{}", x)
+            }
+
+            //let offset = c.read_u32::<LittleEndian>().unwrap();
+            //warn!("ref {}", offset);
+            //self.read_value(offset as u64, parts.next().unwrap())
         } else {
             c.read_value(field.datatype.as_str())
-        }
+        };
+        debug!("result {} {}", field.name, result);
+
+        result
     }
 
     fn read_value(&self, offset: u64, data_type: &str) -> Value {
@@ -123,6 +152,7 @@ impl DatFileRead for DatFile {
     }
 
     fn read_list(&self, offset: u64, len: u64, data_type: &str) -> Vec<Value> {
+        debug!("read_list {} len({}) {}", offset, len, data_type);
         let exact_offset = self.data_section + offset as usize;
         self.check_offset(exact_offset);
 

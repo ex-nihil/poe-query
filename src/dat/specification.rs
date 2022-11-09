@@ -1,10 +1,7 @@
-use std::any::Any;
 use std::collections::HashMap;
-use super::util;
-use serde::Deserialize;
-use std::path::Path;
+
 use apollo_parser::ast::AstNode;
-use log::{error, warn};
+use serde::Deserialize;
 
 #[derive(Debug, PartialEq, Deserialize, Clone)]
 pub struct FileSpec {
@@ -35,6 +32,7 @@ pub struct FieldSpec {
     pub offset: u64,
 }
 
+/*
 fn undefined() -> String {
     "undefined".to_string()
 }
@@ -42,6 +40,7 @@ fn undefined() -> String {
 fn empty() -> String {
     "".to_string()
 }
+*/
 
 impl FileSpec {
 
@@ -49,7 +48,6 @@ impl FileSpec {
 
         use apollo_parser::Parser;
         use apollo_parser::ast::Definition;
-        use apollo_parser::ast::Type;
 
 
         let mut enum_specs: HashMap<_, _> = HashMap::new();
@@ -65,7 +63,6 @@ impl FileSpec {
         asd.sort(); // TODO: RIP core is last if sorted alphabetically
 
         asd.iter().for_each(|pb| {
-            //println!("Path: {:?}", pb);
             let text = std::fs::read_to_string(pb).unwrap();
 
             let parser = Parser::new(&text);
@@ -74,9 +71,8 @@ impl FileSpec {
             assert_eq!(ast.errors().len(), 0);
             for def in ast.document().definitions() {
                 match def {
-                    Definition::ObjectTypeDefinition(obj) => {}
+                    Definition::ObjectTypeDefinition(_) => {}
                     Definition::EnumTypeDefinition(obj) => {
-                        println!("enum {}", obj.name().unwrap().text());
                         let enum_name = obj.name().unwrap().text();
 
                         let mut index = 0;
@@ -91,10 +87,7 @@ impl FileSpec {
                         }
                         let mut values = Vec::new();
                         for field in obj.enum_values_definition().unwrap().enum_value_definitions() {
-
                             let value = field.enum_value().unwrap().name().unwrap().text();
-                            let type_syntax = obj.type_id();
-
                             values.push(value.to_string())
                         }
 
@@ -115,9 +108,9 @@ impl FileSpec {
     pub fn read_all_specs(path: &str, enum_specs: &HashMap<String, EnumSpec>) -> HashMap<String, FileSpec> {
 
         let whitelist = vec![
-            "Words"
         ];
 
+        // TODO: investigate what's wrong with these?
         let blacklist = vec![
             "ShopTag",
             "ItemVisualEffect",
@@ -146,13 +139,11 @@ impl FileSpec {
             .filter_map(Result::ok)
             .map(|d| d.path())
             .filter(|pb| pb.is_file() && pb.extension().expect("gql file not found").to_string_lossy() == "gql")
-            //.map(|p| p.as_path())
             .collect();
 
         asd.sort(); // TODO: RIP core is last if sorted alphabetically
 
         asd.iter().for_each(|pb| {
-            //println!("Path: {:?}", pb);
             let text = std::fs::read_to_string(pb).unwrap();
 
             let parser = Parser::new(&text);
@@ -175,15 +166,15 @@ impl FileSpec {
                         for field in obj.fields_definition().unwrap().field_definitions() {
                             let current_offset = offset;
                             let name = field.name().unwrap().text();
-                            let type_syntax = field.ty().unwrap().syntax().clone();
 
                             let mut is_list = false;
-                            let mut asd = match field.ty().unwrap() {
+                            let asd = match field.ty().unwrap() {
                                 Type::NamedType(it) => {
                                     match it.syntax().text().to_string().as_str() {
                                         "i64" | "u64" => offset += 8,
                                         "bool" | "u8" => offset += 1,
-                                        _ => offset += 4
+                                        "u32" | "i32" | "rid" | "string" => offset += 4,
+                                        _ => offset += 8,
                                     }
                                     it.syntax().text().to_string()
                                 },
@@ -196,7 +187,7 @@ impl FileSpec {
                             };
 
                             let key_file = match asd.as_str() {
-                                "i32" | "bool" | "rid" | "string" | "f32" => None,
+                                "i32" | "bool" | "rid" | "string" | "f32" | "u32" => None,
                                 t => {
                                     Some(t.to_string())
                                 }
@@ -205,14 +196,14 @@ impl FileSpec {
                             let enum_spec: Option<&EnumSpec> = key_file.as_ref().map(|x| enum_specs.get(x)).flatten();
 
                             let mut type_value = match (is_list, &key_file) {
-                                (true, Some(file)) => {
-                                    "list|ptr".to_string()
+                                (true, Some(_)) => {
+                                    "list|u32".to_string()
                                 }
                                 (true, None) => {
                                     "list|".to_owned() + &asd
                                 }
-                                (_, Some(_)) => "ptr".to_string(),
-                                (_, None) => match asd.as_str() {
+                                (false, Some(_)) => "u32".to_string(),
+                                (false, None) => match asd.as_str() {
                                     "string" => "ref|string",
                                     "rid" => "u32",
                                     t => t
@@ -220,6 +211,7 @@ impl FileSpec {
                             };
 
                             if enum_spec.is_some() {
+                                offset -= 4;
                                 type_value = "u32".to_string();
                             }
 
@@ -232,17 +224,18 @@ impl FileSpec {
                             });
                         }
 
-
+/*
                         for field in &fields {
                             warn!("{:?}", field);
                         }
+ */
                         file_specs.insert(format!("Data/{}.dat", filename), FileSpec {
                             filename: format!("Data/{}.dat", filename),
                             fields,
                             export: filename
                         });
                     }
-                    Definition::EnumTypeDefinition(obj) => {}
+                    Definition::EnumTypeDefinition(_) => {}
                     def => unimplemented!("Unhandled definition: {:?}", def),
                 }
             }
@@ -259,7 +252,7 @@ impl FileSpec {
         }
     }
 }
-
+/*
 fn update_with_offsets(fields: Vec<FieldSpec>) -> Vec<FieldSpec> {
     let mut offset = 0;
     fields
@@ -277,7 +270,7 @@ fn update_with_offsets(fields: Vec<FieldSpec>) -> Vec<FieldSpec> {
         })
         .collect()
 }
-
+*/
 pub trait FileSpecImpl {
     fn field(&self, key: &str) -> Option<&FieldSpec>;
 }

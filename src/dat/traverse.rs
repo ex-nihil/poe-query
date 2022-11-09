@@ -1,34 +1,33 @@
 use log::*;
 use std::collections::HashMap;
-use crate::dat::file::DatFile;
+use crate::DatContainer;
 
 use super::super::lang::{Compare, Operation, Term};
 use super::file::DatFileRead;
-use super::reader::DatStore;
 use super::reader::DatStoreImpl;
 use super::specification::FieldSpecImpl;
 use super::value::Value;
 
 pub struct TraversalContext<'a> {
-    pub store: DatStore<'a>,
+    pub store: &'a DatContainer<'a>,
     pub variables: HashMap<String, Value>,
     pub current_field: Option<String>,
     pub current_file: Option<&'a str>,
     pub identity: Option<Value>,
 }
 
-pub trait TraversalContextImpl {
+pub trait TraversalContextImpl<'a> {
     fn child(&mut self, name: &str);
     fn index(&mut self, index: usize);
     fn slice(&mut self, from: usize, to: usize);
     fn to_iterable(&mut self) -> Value;
     fn value(&self) -> Value;
     fn identity(&self) -> Value;
-    fn clone(&self) -> TraversalContext;
+    fn clone(&self) -> TraversalContext<'a>;
 
     fn enter_foreign(&mut self);
     fn rows_from(&self, file: &str, indices: &[u64]) -> Value;
-    fn clone_with_value(&self, name: Option<Value>) -> TraversalContext;
+    fn clone_with_value(&self, name: Option<Value>) -> TraversalContext<'a>;
 }
 
 pub trait TermsProcessor {
@@ -266,14 +265,16 @@ impl TermsProcessor for TraversalContext<'_> {
     }
 }
 
-impl TraversalContextImpl for TraversalContext<'_> {
+impl<'a> TraversalContextImpl<'a> for TraversalContext<'a> {
     fn child(&mut self, name: &str) {
+        debug!("child {}", name);
         let spec = self.store.spec_by_export(name);
         if self.current_file.is_none() && spec.is_some() {
             let spec = spec.unwrap();
 
             // generate initial values
             let file = self.store.file(&spec.filename).unwrap();
+            warn!("total size of {} {}", name, file.total_size);
             let values: Vec<Value> = (0..file.rows_count)
                 .map(|i| {
                     let kv_list: Vec<Value> = spec
@@ -453,9 +454,9 @@ impl TraversalContextImpl for TraversalContext<'_> {
         self.identity.clone().unwrap_or(Value::Empty)
     }
 
-    fn clone(&self) -> TraversalContext {
+    fn clone(&self) -> TraversalContext<'a> {
         TraversalContext {
-            store: self.store,
+            store: self.store.clone(),
             variables: self.variables.clone(),
             current_field: self.current_field.clone(),
             current_file: self.current_file,
@@ -541,7 +542,7 @@ impl TraversalContextImpl for TraversalContext<'_> {
     }
 
     // current value can be large datasets
-    fn clone_with_value(&self, value: Option<Value>) -> TraversalContext {
+    fn clone_with_value(&self, value: Option<Value>) -> TraversalContext<'a> {
         TraversalContext {
             store: self.store,
             variables: self.variables.clone(),
@@ -553,15 +554,14 @@ impl TraversalContextImpl for TraversalContext<'_> {
 }
 
 // TODO: move this somewhere else
-fn iterate<F>(value: &Value, action: F) -> Value
+fn iterate<F>(value: &Value, mut action: F) -> Value
 where
-    F: Fn(Value) -> Option<Value> + Send + Sync,
+    F: FnMut(Value) -> Option<Value> + Send + Sync,
 {
-    use rayon::prelude::*;
     match value {
         Value::Iterator(elements) => Value::List(
             elements
-                .par_iter()
+                .iter()
                 .filter_map(|e| action(e.clone()))
                 .collect(),
         ),

@@ -2141,13 +2141,13 @@ type ItemClasses {
   CanTransferSkin: bool
   ItemStance: ItemStances
   CanScourge: bool
-  _: bool # CanScourge2
-  _: bool # 3.17
-  _: bool # 3.18
+  _: bool
+  _: bool
+  _: bool
   _: [i32]
   Flags: [ItemClassFlags]
   _: bool
-  _: bool # 3.19
+  _: bool
   EquipAchievements: AchievementItems
 }
 
@@ -2580,7 +2580,7 @@ type MapTierAchievements {
 type MapTiers {
   Tier: i32
   Level: i32
-  Level2: i32 # 3.18.1
+  Level2: i32
 }
 
 type MasterHideoutLevels {
@@ -3002,8 +3002,8 @@ type Mods {
   _: i32
   BuffTemplate: BuffTemplates
   ArchnemesisMinionMod: Mods
+  _: i32
   HASH32: i32
-  _: [i32]
 }
 
 type ModSellPriceTypes {

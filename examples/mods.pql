@@ -1,34 +1,33 @@
-.mods[] | 
+.Mods[0] |
 {
-    "id": .id,
-    "mod_type": .mod_type.name,
-    "mod_type_tags": .mod_type.tags[].id,
-    "group": .group,
-    "type": .generation_type,
-    "name": .name,
-    "ilvl": .level,
+    "id": .Id,
+    "group": .Domain,
+    "type": .GenerationType,
+    "name": .Name,
+    "ilvl": .Level,
+    "mod_type": .ModTypeKey.Name,
     "stats": {
-        .stats1.id: {
-            "min": .stat1_min,
-            "max": .stat1_max,
+        .StatsKey1.Id: {
+            "min": .Stat1Min,
+            "max": .Stat1Max,
         },
-        .stats2.id: {
-            "min": .stat2_min,
-            "max": .stat2_max,
+        .StatsKey2.Id: {
+            "min": .Stat2Min,
+            "max": .Stat2Max,
         },
-        .stats3.id: {
-            "min": .stat3_min,
-            "max": .stat3_max,
+        .StatsKey3.Id: {
+            "min": .Stat3Min,
+            "max": .Stat3Max,
         },
-        .stats4.id: {
-            "min": .stat4_min,
-            "max": .stat4_max,
+        .StatsKey4.Id: {
+            "min": .Stat4Min,
+            "max": .Stat4Max,
         },
-        .stats5.id: {
-            "min": .stat5_min,
-            "max": .stat5_max,
+        .StatsKey5.Id: {
+            "min": .Stat5Min,
+            "max": .Stat5Max,
         },
     },
-    "spawn_weights": [.spawn_weight_tags[].id, .spawn_weight_values] | zip_to_obj,
-    "gen_weights": [.gen_weight_tags[].id, .gen_weight_values] | zip_to_obj
+    "spawn_weights": [.SpawnWeight_TagsKeys[].Id, .SpawnWeight_Values] | zip_to_obj,
+    "gen_weights": [.GenerationWeight_TagsKeys[].Id, .GenerationWeight_Values] | zip_to_obj
 }
