@@ -12,10 +12,11 @@ use log::*;
 use poe_bundle::BundleReader;
 use simplelog::*;
 
-use dat::reader::{DatContainer, DatContainerImpl};
+use dat::reader::{DatContainer};
 use dat::traverse::TermsProcessor;
 pub use dat::value::Value;
 pub use lang::Term;
+use crate::dat::traverse::{SharedMutableTraversalContext, SharedTraversalContext, TraversalContextEphemeral};
 
 mod dat;
 pub mod lang;
@@ -78,11 +79,18 @@ fn main() {
 
     let bundles = BundleReader::from_install(path);
     let container = DatContainer::from_install(&bundles, "./dat-schema");
-    let mut navigator = container.navigate();
+    let navigator = SharedTraversalContext {
+        store: &container,
+    };
     let read_index_ms = now.elapsed().as_millis();
 
     now = Instant::now();
-    let value = navigator.process(&terms);
+    let value = navigator.process(&mut TraversalContextEphemeral{
+        current_field: None,
+        current_file: None,
+        dat_file: None,
+        identity: None
+    }, &mut SharedMutableTraversalContext { variables: Default::default(), files: Default::default() }, &terms);
     let query_ms = now.elapsed().as_millis();
 
     match value {

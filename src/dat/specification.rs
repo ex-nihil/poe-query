@@ -32,23 +32,11 @@ pub struct FieldSpec {
     pub offset: u64,
 }
 
-/*
-fn undefined() -> String {
-    "undefined".to_string()
-}
-
-fn empty() -> String {
-    "".to_string()
-}
-*/
-
 impl FileSpec {
 
     pub fn read_all_enum_specs(path: &str) -> HashMap<String, EnumSpec> {
-
         use apollo_parser::Parser;
         use apollo_parser::ast::Definition;
-
 
         let mut enum_specs: HashMap<_, _> = HashMap::new();
 
@@ -57,7 +45,6 @@ impl FileSpec {
             .filter_map(Result::ok)
             .map(|d| d.path())
             .filter(|pb| pb.is_file() && pb.extension().expect("gql file not found").to_string_lossy() == "gql")
-            //.map(|p| p.as_path())
             .collect();
 
         asd.sort(); // TODO: RIP core is last if sorted alphabetically
@@ -106,28 +93,6 @@ impl FileSpec {
     }
 
     pub fn read_all_specs(path: &str, enum_specs: &HashMap<String, EnumSpec>) -> HashMap<String, FileSpec> {
-
-        let whitelist = vec![
-        ];
-
-        // TODO: investigate what's wrong with these?
-        let blacklist = vec![
-            "ShopTag",
-            "ItemVisualEffect",
-            "MiscBeams",
-            "HarvestCraftOptions",
-            "CurrencyItems",
-            "BestiaryCapturableMonsters",
-            "HellscapeImmuneMonsters",
-            "TriggerSpawners",
-            "BuffVisualOrbs",
-            "ModFamily",
-            "Chests",
-            "BetrayalDialogue",
-            "ItemVisualIdentity",
-            "MapConnections",
-            "CharacterStartStates"
-        ];
         use apollo_parser::Parser;
         use apollo_parser::ast::Definition;
         use apollo_parser::ast::Type;
@@ -154,12 +119,6 @@ impl FileSpec {
                 match def {
                     Definition::ObjectTypeDefinition(obj) => {
                         let filename = obj.name().unwrap().text().to_string();
-                        if !whitelist.is_empty() && !whitelist.contains(&filename.as_str()) {
-                            continue;
-                        }
-                        if !blacklist.is_empty() && blacklist.contains(&filename.as_str()) {
-                            continue;
-                        }
                         let mut offset = 0;
 
                         let mut fields = Vec::new();
@@ -224,11 +183,6 @@ impl FileSpec {
                             });
                         }
 
-/*
-                        for field in &fields {
-                            warn!("{:?}", field);
-                        }
- */
                         file_specs.insert(format!("Data/{}.dat", filename), FileSpec {
                             filename: format!("Data/{}.dat", filename),
                             fields,
@@ -252,25 +206,7 @@ impl FileSpec {
         }
     }
 }
-/*
-fn update_with_offsets(fields: Vec<FieldSpec>) -> Vec<FieldSpec> {
-    let mut offset = 0;
-    fields
-        .iter()
-        .map(|field| {
-            let updated = FieldSpec {
-                offset,
-                enum_name: field.enum_name.clone(),
-                name: field.name.clone(),
-                datatype: field.datatype.clone(),
-                file: field.file.clone(),
-            };
-            offset += FileSpec::field_size(field);
-            return updated;
-        })
-        .collect()
-}
-*/
+
 pub trait FileSpecImpl {
     fn field(&self, key: &str) -> Option<&FieldSpec>;
 }

@@ -1,7 +1,7 @@
 .Mods[0] |
 {
     "id": .Id,
-    "group": .Domain,
+    "domain": .Domain,
     "type": .GenerationType,
     "name": .Name,
     "ilvl": .Level,

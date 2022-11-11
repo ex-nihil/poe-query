@@ -1,5 +1,6 @@
 use byteorder::{LittleEndian, ReadBytesExt};
 use core::panic;
+use std::fmt::Error;
 use log::*;
 use std::io::Cursor;
 use std::process;
@@ -13,6 +14,7 @@ const DATA_SECTION_START: &[u8; 8] = &[0xBB; 8];
 
 
 pub struct DatFile {
+    pub name: String,
     pub bytes: Vec<u8>,
     pub total_size: usize,
     pub rows_begin: usize,
@@ -21,7 +23,14 @@ pub struct DatFile {
     pub row_size: usize,
 }
 
+impl std::fmt::Debug for DatFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), Error> {
+        write!(f, "{} {} rows ({} bytes)", self.name, self.rows_count, self.total_size)
+    }
+}
+
 const EMPTY_DAT: DatFile = DatFile {
+    name: String::new(),
     total_size: 0,
     bytes: vec![],
     rows_begin: 0,
@@ -32,7 +41,7 @@ const EMPTY_DAT: DatFile = DatFile {
 
 impl DatFile {
 
-    pub fn from_bytes(bytes: Vec<u8>) -> DatFile {
+    pub fn from_bytes(name: String, bytes: Vec<u8>) -> DatFile {
         if bytes.is_empty() {
             panic!("bytes was empty");
         }
@@ -48,14 +57,18 @@ impl DatFile {
         let rows_total_size = data_section - rows_begin;
         let row_size = rows_total_size / rows_count as usize;
 
-        DatFile {
+        let file = DatFile {
+            name,
             total_size: bytes.len(),
             bytes,
             rows_begin,
             data_section,
             rows_count,
             row_size
-        }
+        };
+
+        info!("{:?}", file);
+        file
     }
 }
 
@@ -88,6 +101,7 @@ impl DatFileRead for DatFile {
     fn check_offset(&self, offset: usize) {
         if offset > self.total_size {
             error!("Attempt to read outside DAT. This is a bug or the file is corrupted.");
+            error!("{} - offset: {} size: {}", self.name, offset, self.total_size);
             process::exit(-1);
         }
     }
@@ -104,7 +118,6 @@ impl DatFileRead for DatFile {
         let mut c = Cursor::new(&self.bytes[exact_offset..]);
         debug!("reading {:?} from row {}", field, row);
 
-
         let mut parts = field.datatype.split("|");
         let prefix = parts.next();
         let result = if let Some(enum_spec) = &field.enum_name {
@@ -114,16 +127,12 @@ impl DatFileRead for DatFile {
                 x => panic!("{}", x)
             }
         } else if prefix.filter(|&dtype| "list" == dtype).is_some() {
-            //let length = c.read_u32::<LittleEndian>().unwrap() as u64;
-            //let offset = c.read_u32::<LittleEndian>().unwrap() as u64;
             let length = c.u32();
             let offset = c.u32();
             match (offset, length) {
                 (Value::U64(o), Value::U64(len)) => Value::List(self.read_list(o, len, parts.next().unwrap())),
                 _ => Value::Empty
             }
-            //warn!("list {} len({})", offset, length);
-            //Value::List(self.read_list(offset, length, parts.next().unwrap()))
         } else if prefix.filter(|&dtype| "ref" == dtype).is_some() {
 
             match c.u32() {
@@ -131,10 +140,6 @@ impl DatFileRead for DatFile {
                 Value::Empty => Value::Empty,
                 x => panic!("{}", x)
             }
-
-            //let offset = c.read_u32::<LittleEndian>().unwrap();
-            //warn!("ref {}", offset);
-            //self.read_value(offset as u64, parts.next().unwrap())
         } else {
             c.read_value(field.datatype.as_str())
         };
