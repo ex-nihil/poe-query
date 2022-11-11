@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use log::info;
 use poe_bundle::reader::{BundleReader, BundleReaderRead};
+use crate::dat::file::DatFileRead;
 
 use crate::dat::specification::EnumSpec;
 
@@ -39,10 +40,13 @@ pub trait DatStoreImpl<'a> {
 impl<'a> DatStoreImpl<'a> for DatContainer<'a> {
     fn file(&self, path: &str) -> Option<DatFile> {
         info!("Unpacking {}", path);
-        match self.bundle_reader.bytes(path) {
-            Ok(bytes) => Some(DatFile::from_bytes(path.to_string(), bytes)),
-            Err(_) => None
-        }
+        let Some(spec) = self.spec(path) else { return None };
+        let Ok(bytes) = self.bundle_reader.bytes(path) else { return None };
+
+        let file = DatFile::from_bytes(path.to_string(), bytes);
+        file.valid(spec);
+
+        Some(file)
     }
 
     fn spec(&self, path: &str) -> Option<&FileSpec> {

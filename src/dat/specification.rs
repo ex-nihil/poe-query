@@ -133,6 +133,7 @@ impl FileSpec {
                                         "i64" | "u64" => offset += 8,
                                         "bool" | "u8" => offset += 1,
                                         "u32" | "i32" | "rid" | "string" => offset += 4,
+                                        t if t == filename => offset += 4, // self reference
                                         _ => offset += 8,
                                     }
                                     it.syntax().text().to_string()
