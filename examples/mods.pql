@@ -1,4 +1,4 @@
-.Mods[0] |
+.Mods[] |
 {
     "id": .Id,
     "domain": .Domain,

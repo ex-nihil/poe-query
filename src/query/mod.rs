@@ -2,7 +2,7 @@ use pest::Parser;
 use std::fmt::Debug;
 
 #[derive(Parser)]
-#[grammar = "lang/grammar.pest"]
+#[grammar = "query/grammar.pest"]
 struct PluckParser;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -98,7 +98,9 @@ fn build_ast(pair: pest::iterators::Pair<Rule>, dst: &mut Vec<Term>) {
             if let Some(op) = operation {
                 dst.push(Term::calculate(lhs, op, rhs));
             } else {
-                lhs.iter().for_each(|t| dst.push(t.clone()));
+                for t in lhs {
+                    dst.push(t)
+                }
             }
         }
         Rule::zip_to_obj => {
@@ -125,7 +127,9 @@ fn build_ast(pair: pest::iterators::Pair<Rule>, dst: &mut Vec<Term>) {
                     ]
                 ),
             ];
-            instructions.iter().for_each(|t| dst.push(t.clone()));
+            for t in instructions {
+                dst.push(t)
+            }
         }
         Rule::reduce => {
             let inner = pair.into_inner();

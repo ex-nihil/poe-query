@@ -13,13 +13,13 @@ use poe_bundle::BundleReader;
 use simplelog::*;
 
 use dat::reader::{DatContainer};
-use dat::traverse::TermsProcessor;
-pub use dat::value::Value;
-pub use lang::Term;
-use crate::dat::traverse::{SharedMutableTraversalContext, SharedTraversalContext, TraversalContextEphemeral};
+pub use query::Term;
+use crate::traversal::traverse::{SharedCache, StaticContext, TermsProcessor, TraversalContext};
+use crate::traversal::value::Value;
 
 mod dat;
-pub mod lang;
+pub mod query;
+pub mod traversal;
 
 fn main() {
     let matches = App::new("PoE DAT transformer")
@@ -66,32 +66,34 @@ fn main() {
     CombinedLogger::init(vec![TermLogger::new(
         log_level,
         Config::default(),
-        TerminalMode::Mixed,
+        TerminalMode::Stderr
     )])
     .expect("logger");
 
     let query = matches.value_of("query").expect("query arg");
     let path = matches.value_of("path").expect("path arg");
-    let terms = lang::parse(query);
+    let terms = query::parse(query);
     debug!("terms: {:?}", terms);
 
     let mut now = Instant::now();
 
     let bundles = BundleReader::from_install(path);
     let container = DatContainer::from_install(&bundles, "./dat-schema");
-    let navigator = SharedTraversalContext {
+    let navigator = StaticContext {
         store: &container,
     };
     let read_index_ms = now.elapsed().as_millis();
 
     now = Instant::now();
-    let value = navigator.process(&mut TraversalContextEphemeral{
+    let value = navigator.process(&mut TraversalContext {
         current_field: None,
         current_file: None,
         dat_file: None,
         identity: None
-    }, &mut SharedMutableTraversalContext { variables: Default::default(), files: Default::default() }, &terms);
+    }, &mut SharedCache { variables: Default::default(), files: Default::default() }, &terms);
     let query_ms = now.elapsed().as_millis();
+
+    now = Instant::now();
 
     match value {
         Value::Iterator(items) => {
@@ -105,7 +107,9 @@ fn main() {
             println!("{}", serialized);
         },
     };
+    let serialize_ts = now.elapsed().as_millis();
 
     info!("setup spent: {}ms", read_index_ms);
     info!("query spent: {}ms", query_ms);
+    info!("serialize spent: {}ms", serialize_ts);
 }

@@ -2,7 +2,9 @@ use log::*;
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 use std::fmt;
 use std::ops;
+use std::ops::Deref;
 use std::process;
+use std::time::Instant;
 
 #[derive(Debug, Clone, PartialOrd, PartialEq)]
 pub enum Value {
@@ -16,12 +18,6 @@ pub enum Value {
     Object(Box<Value>), // Make this a map instead? Comparisons might be a problem.
     Bool(bool),
     Empty,
-}
-
-impl fmt::Display for Value {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
-    }
 }
 
 impl ops::Add<Value> for Value {
@@ -55,7 +51,7 @@ impl ops::Add<Value> for Value {
                 )))
             }
             (lhs, rhs) => {
-                error!("Operation not supported: {} + {}", lhs, rhs);
+                error!("Operation not supported: {:?} + {:?}", lhs, rhs);
                 process::exit(-1);
             }
         }
@@ -67,15 +63,16 @@ impl Serialize for Value {
     where
         S: Serializer,
     {
+        //warn!("{:?}", self);
         match self {
-            Value::Object(content) => match *content.clone() {
+            Value::Object(content) => match content.deref() {
                 Value::List(list) => {
                     let mut map = serializer.serialize_map(Some(list.len()))?;
                     for value in list {
                         if let Value::KeyValue(k, v) = value {
                             map.serialize_entry(k.as_ref(), v.as_ref())?
                         } else {
-                            error!("object contained an unexpected value: {:?}", content);
+                            error!("object contained an unexpected value: {:?}", value);
                             process::exit(-1);
                         }
                     }

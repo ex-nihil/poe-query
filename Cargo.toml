@@ -6,6 +6,8 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+# For profiling, disable this
+
 [dependencies]
 poe_bundle = { git = "https://github.com/ex-nihil/poe-bundle" }
 pest = "2.1.3"

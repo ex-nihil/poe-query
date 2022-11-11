@@ -4,14 +4,14 @@ use std::fmt::Error;
 use log::*;
 use std::io::Cursor;
 use std::process;
+use std::time::Instant;
+use crate::traversal::value::Value;
 
 use super::specification::FieldSpec;
 use super::specification::FileSpec;
 use super::util;
-use super::value::Value;
 
 const DATA_SECTION_START: &[u8; 8] = &[0xBB; 8];
-
 
 pub struct DatFile {
     pub name: String,
@@ -67,7 +67,7 @@ impl DatFile {
             row_size
         };
 
-        info!("{:?}", file);
+        info!("Read {:?}", file);
         file
     }
 }
@@ -116,7 +116,7 @@ impl DatFileRead for DatFile {
         }
 
         let mut c = Cursor::new(&self.bytes[exact_offset..]);
-        debug!("reading {:?} from row {}", field, row);
+        trace!("reading {:?} from row {}", field, row);
 
         let mut parts = field.datatype.split("|");
         let prefix = parts.next();
@@ -124,7 +124,7 @@ impl DatFileRead for DatFile {
             match c.u32() {
                 Value::U64(v) => Value::Str(enum_spec.value(v as usize)),
                 Value::Empty => Value::Empty,
-                x => panic!("{}", x)
+                x => panic!("{:?}", x)
             }
         } else if prefix.filter(|&dtype| "list" == dtype).is_some() {
             let length = c.u32();
@@ -138,13 +138,12 @@ impl DatFileRead for DatFile {
             match c.u32() {
                 Value::U64(offset) => self.read_value(offset, parts.next().unwrap()),
                 Value::Empty => Value::Empty,
-                x => panic!("{}", x)
+                x => panic!("{:?}", x)
             }
         } else {
             c.read_value(field.datatype.as_str())
         };
-        debug!("result {} {}", field.name, result);
-
+        trace!("result {} {:?}", field.name, result);
         result
     }
 

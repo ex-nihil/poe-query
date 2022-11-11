@@ -1,117 +1,124 @@
 use log::*;
 use std::collections::HashMap;
-use crate::dat::file::DatFile;
-use crate::DatContainer;
+use crate::dat::file::{DatFile, DatFileRead};
+use crate::dat::reader::DatStoreImpl;
+use crate::{DatContainer, Term};
+use crate::query::{Compare, Operation};
+use crate::dat::specification::FieldSpecImpl;
 
-use super::super::lang::{Compare, Operation, Term};
-use super::file::DatFileRead;
-use super::reader::DatStoreImpl;
-use super::specification::FieldSpecImpl;
 use super::value::Value;
 
-pub struct SharedTraversalContext<'a> {
+pub struct StaticContext<'a> {
     pub store: &'a DatContainer<'a>,
 }
 
-#[derive(Clone)]
-pub struct TraversalContextEphemeral<'a> {
+/** Local context */
+#[derive(Debug, Clone)]
+pub struct TraversalContext<'a> {
     pub current_field: Option<String>,
     pub current_file: Option<String>,
     pub dat_file: Option<&'a DatFile>,
     pub identity: Option<Value>,
 }
 
-pub struct SharedMutableTraversalContext {
+/** Shared cache */
+pub struct SharedCache {
     pub variables: HashMap<String, Value>,
     pub files: HashMap<String, DatFile>,
 }
 
-
+impl TraversalContext<'_> {
+    pub fn clone_value(&self, ident: Option<Value>) -> Self {
+        Self {
+            current_field: self.current_field.clone(),
+            current_file: self.current_file.clone(),
+            dat_file: self.dat_file,
+            identity: ident
+        }
+    }
+}
 
 pub trait TraversalContextImpl<'a> {
-    fn child(&self, local_context: &mut TraversalContextEphemeral, shared_context: &mut SharedMutableTraversalContext, name: &str);
-    fn index(&self, local_context: &mut TraversalContextEphemeral, index: usize);
-    fn slice(&self, local_context: &mut TraversalContextEphemeral, from: usize, to: usize);
-    fn to_iterable(&self, local_context: &mut TraversalContextEphemeral, shared_context: &mut SharedMutableTraversalContext) -> Value;
-    fn value(&self, local_context: &mut TraversalContextEphemeral) -> Value;
-    fn identity(&self, local_context: &mut TraversalContextEphemeral) -> Value;
+    fn child(&self, context: &mut TraversalContext, cache: &mut SharedCache, name: &str);
+    fn index(&self, context: &mut TraversalContext, index: usize);
+    fn slice(&self, context: &mut TraversalContext, from: usize, to: usize);
+    fn to_iterable(&self, context: &mut TraversalContext, cache: &mut SharedCache) -> Value;
+    fn value(&self, context: &mut TraversalContext) -> Value;
+    fn identity(&self, context: &mut TraversalContext) -> Value;
 
-    fn enter_foreign(&self, local_context: &mut TraversalContextEphemeral, shared_context: &mut SharedMutableTraversalContext);
-    fn rows_from(&self, shared_context: &mut SharedMutableTraversalContext, file: &str, indices: &[u64]) -> Value;
+    fn enter_foreign(&self, context: &mut TraversalContext, cache: &mut SharedCache);
+    fn rows_from(&self, cache: &mut SharedCache, file: &str, indices: &[u64]) -> Value;
 }
 
 pub trait TermsProcessor {
-    fn process(&self, local_context: &mut TraversalContextEphemeral, shared_context: &mut SharedMutableTraversalContext, parsed_terms: &[Term]) -> Value;
-    fn traverse_term(&self, local_context: &mut TraversalContextEphemeral, shared_context: &mut SharedMutableTraversalContext, term: &Term) -> Value;
-    fn traverse_terms_inner(&self, local_context: &mut TraversalContextEphemeral, shared_context: &mut SharedMutableTraversalContext, terms: &[Term]) -> Option<Value>;
+    fn process(&self, context: &mut TraversalContext, cache: &mut SharedCache, parsed_terms: &[Term]) -> Value;
+    fn traverse_term(&self, context: &mut TraversalContext, cache: &mut SharedCache, term: &Term) -> Value;
+    fn traverse_terms_inner(&self, context: &mut TraversalContext, cache: &mut SharedCache, terms: &[Term]) -> Option<Value>;
 }
 
-impl TermsProcessor for SharedTraversalContext<'_> {
-    fn process(&self, local_context: &mut TraversalContextEphemeral, shared_context: &mut SharedMutableTraversalContext, parsed_terms: &[Term]) -> Value {
+impl TermsProcessor for StaticContext<'_> {
+    fn process(&self, context: &mut TraversalContext, cache: &mut SharedCache, parsed_terms: &[Term]) -> Value {
         let values: Vec<Value> = if parsed_terms.contains(&Term::comma) {
             parsed_terms
                 .split(|term| match term {
                     Term::comma => true,
                     _ => false,
                 })
-                .filter_map(|terms| self.traverse_terms_inner(&mut local_context.clone(), shared_context, &terms))
+                .filter_map(|terms| self.traverse_terms_inner(&mut context.clone(), cache, &terms))
                 .collect()
         } else {
             vec![self
-                .traverse_terms_inner(local_context, shared_context, parsed_terms)
+                .traverse_terms_inner(context, cache, parsed_terms)
                 .unwrap_or(Value::Empty)]
         };
 
-        local_context.identity = if values.len() > 1 {
+
+
+        context.identity = if values.len() > 1 {
             Some(Value::List(values))
         } else if values.len() == 1 {
-            Some(values.first().unwrap().clone())
+            values.into_iter().nth(0)
         } else {
             None
         };
 
-        self.identity(local_context)
+        context.identity.take().unwrap_or(Value::Empty)
     }
 
-    fn traverse_term(&self, local_context: &mut TraversalContextEphemeral, shared_context: &mut SharedMutableTraversalContext, term: &Term) -> Value {
+    fn traverse_term(&self, context: &mut TraversalContext, cache: &mut SharedCache, term: &Term) -> Value {
         match term {
             Term::by_name(key) => {
-                self.child(local_context, shared_context, key);
-                self.identity(local_context)
+                self.child(context, cache, key);
+                let asd = context.identity.take().unwrap_or(Value::Empty);
+                asd
             }
             Term::by_index(i) => {
-                self.index(local_context, *i);
-                self.identity(local_context)
+                self.index(context, *i);
+                context.identity.take().unwrap_or(Value::Empty)
             }
             Term::slice(from, to) => {
-                self.slice(local_context, *from, *to);
-                self.identity(local_context)
+                self.slice(context, *from, *to);
+                context.identity.take().unwrap_or(Value::Empty)
             }
             _ => panic!("unhandled term: {:?}", term),
         }
     }
 
     // Comma has be dealt with
-    fn traverse_terms_inner(&self, local_context: &mut TraversalContextEphemeral, shared_context: &mut SharedMutableTraversalContext, terms: &[Term]) -> Option<Value> {
-        let mut new_value = None;
-        for term in terms {
-            match term {
-                Term::select(lhs, op, rhs) => {
-                    let elems = self.to_iterable(local_context, shared_context);
-                    let result = iterate(&elems, |v| {
-                        let left = SharedTraversalContext::process(self, &mut TraversalContextEphemeral {
-                            current_field: local_context.current_field.clone(),
-                            current_file: local_context.current_file.clone(),
-                            dat_file: local_context.dat_file,
-                            identity: Some(v.clone()),
-                        }, shared_context,  lhs);
+    fn traverse_terms_inner(&self, context: &mut TraversalContext, cache: &mut SharedCache, terms: &[Term]) -> Option<Value> {
+        if terms.is_empty() {
+            return None;
+        }
 
-                        let right = SharedTraversalContext::process(self, &mut TraversalContextEphemeral {
-                            current_field: local_context.current_field.clone(),
-                            current_file: local_context.current_file.clone(),
-                            dat_file: local_context.dat_file,
-                            identity: Some(v.clone()),
-                        }, shared_context, rhs);
+        //let mut new_value = None;
+        for term in terms {
+            let result = match term {
+                Term::select(lhs, op, rhs) => {
+                    let elems = self.to_iterable(context, cache);
+                    let result = iterate(&elems, |v| {
+
+                        let left = self.process(&mut context.clone_value(Some(v.clone())), cache, lhs);
+                        let right = self.process(&mut context.clone_value(Some(v.clone())), cache, rhs);
 
                         let selected = match op {
                             Compare::equals => left == right,
@@ -120,34 +127,35 @@ impl TermsProcessor for SharedTraversalContext<'_> {
                             Compare::greater_than => left > right,
                         };
                         if selected {
-                            Some(v.clone())
+                            Some(v)
                         } else {
                             None
                         }
                     });
-                    new_value = Some(result);
-                }
-                Term::noop => {}
+                    Some(result)
+                },
+                Term::noop => context.identity.take(),
                 Term::iterator => {
-                    new_value = Some(self.to_iterable(local_context, shared_context));
-                }
+                    Some(self.to_iterable(context, cache))
+                },
                 Term::calculate(lhs, op, rhs) => {
-                    let lhs_result = self.clone().traverse_terms_inner(&mut local_context.clone(), shared_context, lhs);
-                    let rhs_result = self.clone().traverse_terms_inner(&mut local_context.clone(), shared_context, rhs);
+                    let lhs_result = self.traverse_terms_inner(&mut context.clone(), cache, lhs);
+                    let rhs_result = self.traverse_terms_inner(&mut context.clone(), cache, rhs);
                     let result = match op {
                         // TODO: add operation support on the different types
                         Operation::add => lhs_result.unwrap() + rhs_result.unwrap(),
                         _ => Value::Empty,
                     };
-                    new_value = Some(result);
-                }
+                    Some(result)
+                },
                 Term::set_variable(name) => {
-                    shared_context.variables
-                        .insert(name.to_string(), self.identity(local_context).clone());
-                }
+                    cache.variables
+                        .insert(name.to_string(), self.identity(context).clone());
+                    context.identity.take()
+                },
                 Term::get_variable(name) => {
-                    new_value = Some(shared_context.variables.get(name).unwrap_or(&Value::Empty).clone());
-                }
+                    Some(cache.variables.get(name).unwrap_or(&Value::Empty).clone())
+                },
                 Term::reduce(outer_terms, init, terms) => {
                     // seach for variables
                     let vars: Vec<&String> = outer_terms
@@ -157,70 +165,68 @@ impl TermsProcessor for SharedTraversalContext<'_> {
                             _ => None,
                         })
                         .collect();
-                    self.traverse_terms_inner(local_context, shared_context, outer_terms);
+                    self.traverse_terms_inner(context, cache, outer_terms);
 
 
-                    let initial = self.traverse_terms_inner(&mut TraversalContextEphemeral {
-                        current_field: local_context.current_field.clone(),
-                        current_file: local_context.current_file.clone(),
-                        dat_file: local_context.dat_file,
-                        identity: None
-                    }, shared_context, init);
+                    let initial = self.traverse_terms_inner(&mut context.clone_value(None), cache, init);
                     let variable = vars.first().unwrap().as_str();
-                    let value = shared_context
+                    let value = cache
                         .variables
                         .get(variable)
                         .unwrap_or(&Value::Empty)
                         .clone();
 
-                    local_context.identity = initial;
+                    //context.identity = initial;
+
+                    let mut reduce_context = context.clone_value(initial);
+                    /*
                     let result = reduce(&value, &mut |v| {
-                        shared_context.variables.insert(variable.to_string(), v.clone());
-                        local_context.identity = Some(self.process(local_context, shared_context, terms));
-                        local_context.identity.clone()
+                        cache.variables.insert(variable.to_string(), v.clone());
+                        context.identity = Some(self.process(context, cache, terms));
+                        warn!("Term::reduce cloned {:?}", context.identity);
+                        context.identity.clone()
                     });
-                    new_value = Some(result);
-                }
+                     */
+                    let result = reduce(&value, &mut |v| {
+                        cache.variables.insert(variable.to_string(), v.clone());
+                        reduce_context.identity = Some(self.process(&mut reduce_context, cache, terms));
+                        reduce_context.identity.clone()
+                    });
+                    context.identity = Some(result.clone());
+
+                    trace!("Term::reduce result: {:?}", result);
+                    Some(result)
+                },
                 Term::map(terms) => {
-                    let result = iterate(&self.to_iterable(local_context, shared_context), |v| {
-                        Some(self.process(&mut TraversalContextEphemeral {
-                            current_field: local_context.current_field.clone(),
-                            current_file: local_context.current_file.clone(),
-                            dat_file: local_context.dat_file,
-                            identity: Some(v.clone())
-                        }, shared_context, terms))
+                    let result = iterate(&self.to_iterable(context, cache), |v| {
+                        Some(self.process(&mut context.clone_value(Some(v)), cache, terms))
                     });
-                    new_value = Some(result);
-                }
+                    Some(result)
+                },
                 Term::object(obj_terms) => {
-                    if let Some(value) = &local_context.identity {
-                        new_value = Some(iterate(value, |v| {
-                            let output = self.process(&mut TraversalContextEphemeral {
-                                current_field: local_context.current_field.clone(),
-                                current_file: local_context.current_file.clone(),
-                                dat_file: local_context.dat_file,
-                                identity: Some(v.clone())
-                            }, shared_context, obj_terms);
+                    if let Some(value) = &context.identity {
+                        Some(iterate(value, |v| {
+                            let output = self.process(&mut context.clone_value(Some(v)), cache, obj_terms);
                             Some(Value::Object(Box::new(output)))
-                        }));
+                        }))
                     } else {
-                        let output = self.process(&mut local_context.clone(), shared_context, obj_terms);
-                        new_value = Some(Value::Object(Box::new(output)));
+                        let output = self.process(&mut context.clone(), cache, obj_terms);
+                        Some(Value::Object(Box::new(output)))
                     }
-                }
+                },
                 Term::kv(key, value_terms) => {
-                    let key = self.process(&mut local_context.clone(), shared_context, &vec![*key.clone()]);
-                    let result = self.process(&mut local_context.clone(), shared_context, &value_terms.to_vec());
+                    let key = self.process(&mut context.clone(), cache, &vec![*key.clone()]);
+                    let result = self.process(&mut context.clone(), cache, &value_terms.to_vec());
+                    trace!("Term::kv result: {:?} {:?}", key, result);
                     match key {
-                        Value::Empty => {}
-                        Value::List(_) => {}
+                        Value::Empty | Value::List(_) => None,
                         _ => {
-                            new_value = Some(Value::KeyValue(Box::new(key), Box::new(result)));
+                            Some(Value::KeyValue(Box::new(key), Box::new(result)))
                         }
                     }
-                }
+                },
                 Term::identity => {
-                    if local_context.current_file.is_none() && local_context.identity.is_none() {
+                    if context.current_file.is_none() && context.identity.is_none() {
                         let exports: Vec<Value> = self
                             .store
                             .exports()
@@ -234,26 +240,27 @@ impl TermsProcessor for SharedTraversalContext<'_> {
                                 )
                             })
                             .collect();
-                        new_value = Some(Value::Object(Box::new(Value::List(exports))));
+                        Some(Value::Object(Box::new(Value::List(exports))))
                     } else {
-                        new_value = Some(self.identity(local_context));
+                        context.identity.take()
                     }
-                }
+                },
                 Term::array(arr_terms) => {
-                    let result = self.process(&mut local_context.clone(), shared_context, &arr_terms.to_vec());
-                    new_value = match result {
+                    let result = self.process(&mut context.clone(), cache, &arr_terms.to_vec());
+                    match result {
                         Value::Empty => Some(Value::List(Vec::with_capacity(0))),
                         _ => Some(result),
-                    };
-                }
+                    }
+                },
                 Term::name(terms) => {
-                    new_value = self.traverse_terms_inner(&mut local_context.clone(), shared_context, terms);
-                }
+                    self.traverse_terms_inner(&mut context.clone(), cache, terms)
+                },
                 Term::string(text) => {
-                    new_value = Some(Value::Str(text.to_string()));
-                }
-                Term::transpose => match local_context.identity.as_ref().unwrap_or(&Value::Empty) {
+                    Some(Value::Str(text.to_string()))
+                },
+                Term::transpose => match context.identity.as_ref().unwrap_or(&Value::Empty) {
                     Value::List(values) => {
+                        trace!("transpose input {:?}", values);
                         let lists: Vec<Vec<Value>> = values
                             .iter()
                             .filter_map(|value| match value {
@@ -277,38 +284,39 @@ impl TermsProcessor for SharedTraversalContext<'_> {
                                 Value::List(inner)
                             })
                             .collect();
-                        new_value = Some(Value::List(outer));
+                        trace!("transpose output {:?}", outer);
+                        Some(Value::List(outer))
                     }
                     rawr => panic!("transpose is only supported on lists - {:?}", rawr),
                 },
                 Term::unsigned_number(value) => {
-                    new_value = Some(Value::U64(*value));
-                }
+                    Some(Value::U64(*value))
+                },
                 Term::signed_number(value) => {
-                    new_value = Some(Value::I64(*value));
+                    Some(Value::I64(*value))
+                },
+                x => {
+                    Some(self.traverse_term(context, cache, &term.clone()))
                 }
-                _ => {
-                    new_value = Some(self.traverse_term(local_context, shared_context, &term.clone()));
-                }
-            }
+            };
 
-            trace!("identity updated: {:?}", new_value);
-            local_context.identity = new_value.clone(); // yikes
+            // emptys out new value, and if no new value is set previous is no longer there
+            context.identity = result; // why can't I take this?
         }
 
-        new_value
+        context.identity.take()
     }
 }
 
-impl<'a> TraversalContextImpl<'a> for SharedTraversalContext<'a> {
-    fn child(&self, local_context: &mut TraversalContextEphemeral, shared_context: &mut SharedMutableTraversalContext, name: &str) {
+impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
+    fn child(&self, context: &mut TraversalContext, cache: &mut SharedCache, name: &str) {
         debug!("child {}", name);
         let spec = self.store.spec_by_export(name);
-        if local_context.current_file.is_none() && spec.is_some() {
+        if context.current_file.is_none() && spec.is_some() {
             let spec = spec.unwrap();
 
             // generate initial values
-            let file = shared_context.files.entry(spec.filename.to_string()).or_insert_with(|| self.store.file(&spec.filename).unwrap());
+            let file = cache.files.entry(spec.filename.to_string()).or_insert_with(|| self.store.file(&spec.filename).unwrap());
 
             let values: Vec<Value> = (0..file.rows_count)
                 .map(|i| {
@@ -326,45 +334,45 @@ impl<'a> TraversalContextImpl<'a> for SharedTraversalContext<'a> {
                 })
                 .collect();
 
-            local_context.current_field = None;
-            local_context.current_file = Some(spec.filename.to_string());
-            local_context.identity = Some(Value::List(values));
+            context.current_field = None;
+            context.current_file = Some(spec.filename.to_string());
+            context.identity = Some(Value::List(values));
         } else {
-            self.enter_foreign(local_context, shared_context);
-            local_context.current_field = Some(name.to_string());
-            local_context.identity = Some(self.value(local_context));
+            self.enter_foreign(context, cache);
+            context.current_field = Some(name.to_string());
+            context.identity = Some(self.value(context));
         }
     }
 
-    fn index(&self, local_context: &mut TraversalContextEphemeral, index: usize) {
-        let value = local_context.identity.as_ref().unwrap_or(&Value::Empty);
+    fn index(&self, context: &mut TraversalContext, index: usize) {
+        let value = context.identity.as_ref().unwrap_or(&Value::Empty);
         match value {
             Value::List(list) => match list.get(index) {
-                Some(value) => local_context.identity = Some(value.clone()),
+                Some(value) => context.identity = Some(value.clone()),
                 None => panic!("attempt to index outside list"),
             },
             Value::Str(str) => match str.chars().nth(index) {
-                Some(value) => local_context.identity = Some(Value::Str(value.to_string())),
+                Some(value) => context.identity = Some(Value::Str(value.to_string())),
                 None => panic!("attempt to index outside string"),
             },
             _ => panic!("attempt to index non-indexable value {:?}", value),
         }
     }
 
-    fn slice(&self, local_context: &mut TraversalContextEphemeral, from: usize, to: usize) {
-        let value = local_context.identity.as_ref().unwrap_or(&Value::Empty);
+    fn slice(&self, context: &mut TraversalContext, from: usize, to: usize) {
+        let value = context.identity.as_ref().unwrap_or(&Value::Empty);
         match value {
             Value::List(list) => {
-                local_context.identity = Some(Value::List(list[from..usize::min(to, list.len())].to_vec()))
+                context.identity = Some(Value::List(list[from..usize::min(to, list.len())].to_vec()))
             }
-            Value::Str(str) => local_context.identity = Some(Value::Str(str[from..to].to_string())),
+            Value::Str(str) => context.identity = Some(Value::Str(str[from..to].to_string())),
             _ => panic!("attempt to index non-indexable value {:?}", value),
         }
     }
 
-    fn to_iterable(&self, local_context: &mut TraversalContextEphemeral, shared_context: &mut SharedMutableTraversalContext) -> Value {
-        self.enter_foreign(local_context, shared_context);
-        let value = local_context.identity.as_ref().unwrap_or(&Value::Empty);
+    fn to_iterable(&self, context: &mut TraversalContext, cache: &mut SharedCache) -> Value {
+        self.enter_foreign(context, cache);
+        let value = context.identity.as_ref().unwrap_or(&Value::Empty);
         let iteratable = match value {
             Value::List(list) => Value::Iterator(list.clone()),
             Value::Iterator(list) => Value::Iterator(list.clone()),
@@ -384,12 +392,12 @@ impl<'a> TraversalContextImpl<'a> for SharedTraversalContext<'a> {
         iteratable
     }
 
-    fn value(&self, local_context: &mut TraversalContextEphemeral) -> Value {
-        if local_context.identity == None {
+    fn value(&self, context: &mut TraversalContext) -> Value {
+        if context.identity == None {
             return Value::Empty;
         }
 
-        match local_context.identity.as_ref().unwrap() {
+        match context.identity.as_ref().unwrap() {
             // TODO: extract to function
             Value::Object(entries) => {
                 let v = match &**entries {
@@ -398,7 +406,7 @@ impl<'a> TraversalContextImpl<'a> for SharedTraversalContext<'a> {
                             .iter()
                             .filter_map(|field| match field {
                                 Value::KeyValue(key, value) => {
-                                    if **key == Value::Str(local_context.current_field.clone().unwrap()) {
+                                    if **key == Value::Str(context.current_field.clone().unwrap()) {
                                         Some(*value.clone())
                                     } else {
                                         None
@@ -411,7 +419,7 @@ impl<'a> TraversalContextImpl<'a> for SharedTraversalContext<'a> {
                         values.first().unwrap_or(&Value::Empty).clone()
                     }
                     Value::KeyValue(key, value) => {
-                        if **key == Value::Str(local_context.current_field.clone().unwrap()) {
+                        if **key == Value::Str(context.current_field.clone().unwrap()) {
                             *value.clone()
                         } else {
                             Value::Empty
@@ -426,7 +434,7 @@ impl<'a> TraversalContextImpl<'a> for SharedTraversalContext<'a> {
                     .iter()
                     .map(|value| match value {
                         Value::KeyValue(k, v) => {
-                            if Value::Str(local_context.current_field.clone().unwrap()) == **k {
+                            if Value::Str(context.current_field.clone().unwrap()) == **k {
                                 *v.clone()
                             } else {
                                 Value::Empty
@@ -440,7 +448,7 @@ impl<'a> TraversalContextImpl<'a> for SharedTraversalContext<'a> {
                             obj.iter()
                                 .filter_map(|field| match field {
                                     Value::KeyValue(k, v) => {
-                                        if Value::Str(local_context.current_field.clone().unwrap()) == **k {
+                                        if Value::Str(context.current_field.clone().unwrap()) == **k {
                                             Some(*v.clone())
                                         } else {
                                             None
@@ -463,7 +471,7 @@ impl<'a> TraversalContextImpl<'a> for SharedTraversalContext<'a> {
                 return Value::List(result);
             }
             Value::U64(i) => {
-                let current = local_context.current_file.as_ref().unwrap();
+                let current = context.current_file.as_ref().unwrap();
                 let spec = self.store.spec(&current).unwrap();
                 let file = self.store.file(&current).unwrap();
 
@@ -485,28 +493,28 @@ impl<'a> TraversalContextImpl<'a> for SharedTraversalContext<'a> {
         };
     }
 
-    fn identity(&self, local_context: &mut TraversalContextEphemeral) -> Value {
-        local_context.identity.clone().unwrap_or(Value::Empty)
+    fn identity(&self, context: &mut TraversalContext) -> Value {
+        context.identity.clone().unwrap_or(Value::Empty)
     }
 
-    fn enter_foreign(&self, local_context: &mut TraversalContextEphemeral, shared_context: &mut SharedMutableTraversalContext) {
-        let current_spec = local_context
+    fn enter_foreign(&self, context: &mut TraversalContext, cache: &mut SharedCache) {
+        let current_spec = context
             .current_file.as_ref()
             .map(|file| self.store.spec(&file))
             .flatten();
         let current_field = current_spec
             .map(|spec| {
                 spec.fields.iter().find(|&field| {
-                    local_context.current_field.is_some()
-                        && local_context.current_field.clone().unwrap() == field.name
+                    context.current_field.is_some()
+                        && context.current_field.clone().unwrap() == field.name
                 })
             })
             .flatten();
 
         if current_field.is_some() && current_field.unwrap().is_foreign_key() {
-            local_context.current_field = None;
+            context.current_field = None;
 
-            let value = local_context.identity.clone().unwrap_or(Value::Empty);
+            let value = context.identity.clone().unwrap_or(Value::Empty);
             let value = match value {
                 Value::List(items) => Value::Iterator(items.clone()),
                 _ => value,
@@ -528,20 +536,20 @@ impl<'a> TraversalContextImpl<'a> for SharedTraversalContext<'a> {
                 })
                 .collect();
 
-                let rows = self.rows_from(shared_context, &current_field.unwrap().file, ids.as_slice());
+                let rows = self.rows_from(cache, &current_field.unwrap().file, ids.as_slice());
                 Some(rows)
             });
 
-            local_context.current_field = None;
-            local_context.current_file = Some(current_spec.unwrap().filename.clone());
-            local_context.identity = Some(result);
+            context.current_field = None;
+            context.current_file = Some(current_spec.unwrap().filename.clone());
+            context.identity = Some(result);
         }
     }
 
-    fn rows_from(&self, shared_context: &mut SharedMutableTraversalContext, filepath: &str, indices: &[u64]) -> Value {
+    fn rows_from(&self, cache: &mut SharedCache, filepath: &str, indices: &[u64]) -> Value {
         let foreign_spec = self.store.spec(filepath).unwrap();
 
-        let file = shared_context.files.entry(filepath.to_string()).or_insert_with(|| self.store.file(filepath).unwrap());
+        let file = cache.files.entry(filepath.to_string()).or_insert_with(|| self.store.file(filepath).unwrap());
 
         let values: Vec<Value> = indices
             .iter()
