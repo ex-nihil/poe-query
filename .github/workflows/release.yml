@@ -29,11 +29,12 @@ jobs:
 
     - name: Package
       if: matrix.os == 'windows-latest'
-      run: powershell Compress-Archive target/release/examples/poe_query.exe ${{ matrix.os }}.zip
+      run: powershell Compress-Archive -LiteralPath target/release/examples/poe_query.exe, update_schemas.sh, extract.sh - DestinationPath ${{ matrix.os }}.zip
 
     - name: Package
       if: matrix.os != 'windows-latest'
-      run: zip --junk-paths ${{ matrix.os }} target/release/examples/poe_query
+      run: zip --junk-paths ${{ matrix.os }} target/release/examples/poe_query update_schemas.sh  extract.sh
+        
 
     - name: Upload
       uses: actions/upload-release-asset@v1
