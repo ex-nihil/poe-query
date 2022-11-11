@@ -281,7 +281,8 @@ dependencies = [
 [[package]]
 name = "ggpk"
 version = "1.2.1"
-source = "git+https://github.com/daniel-dimovski/ggpk?branch=master#92cf21bbc98c38d5b3c743778ac7d9bd4ee855d0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a71adf70119807e7241e9a5f31982cc591257ff8038317269460016e604f0285"
 dependencies = [
  "byteorder",
  "log",
@@ -484,8 +485,9 @@ dependencies = [
 
 [[package]]
 name = "poe_bundle"
-version = "0.0.0"
-source = "git+https://github.com/ex-nihil/poe-bundle#9e9e6e316df27cecbfc6b6e44ed52bae51968b8c"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68e25420bad000101d369265e8530fe419d4d0ab7bc0eaf18d04786afa5b1834"
 dependencies = [
  "byteorder",
  "cmake",

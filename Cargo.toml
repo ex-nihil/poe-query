@@ -9,7 +9,7 @@ edition = "2021"
 # For profiling, disable this
 
 [dependencies]
-poe_bundle = { git = "https://github.com/ex-nihil/poe-bundle" }
+poe_bundle = "0.1.0"
 pest = "2.1.3"
 pest_derive = "2.1.0"
 log = "0.4.11"
