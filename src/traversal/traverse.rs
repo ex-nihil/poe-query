@@ -110,12 +110,11 @@ impl TermsProcessor for StaticContext<'_> {
             return None;
         }
 
-        //let mut new_value = None;
         for term in terms {
-            let result = match term {
+            context.identity = match term {
                 Term::select(lhs, op, rhs) => {
                     let elems = self.to_iterable(context, cache);
-                    let result = iterate(&elems, |v| {
+                    let result = iterate(elems, |v| {
 
                         let left = self.process(&mut context.clone_value(Some(v.clone())), cache, lhs);
                         let right = self.process(&mut context.clone_value(Some(v.clone())), cache, rhs);
@@ -134,7 +133,9 @@ impl TermsProcessor for StaticContext<'_> {
                     });
                     Some(result)
                 },
-                Term::noop => context.identity.take(),
+                Term::noop => {
+                    context.identity.take()
+                },
                 Term::iterator => {
                     Some(self.to_iterable(context, cache))
                 },
@@ -150,7 +151,7 @@ impl TermsProcessor for StaticContext<'_> {
                 },
                 Term::set_variable(name) => {
                     cache.variables
-                        .insert(name.to_string(), self.identity(context).clone());
+                        .insert(name.to_string(), self.identity(context));
                     context.identity.take()
                 },
                 Term::get_variable(name) => {
@@ -187,24 +188,22 @@ impl TermsProcessor for StaticContext<'_> {
                         context.identity.clone()
                     });
                      */
-                    let result = reduce(&value, &mut |v| {
+                    let result = reduce(value, &mut |acc, v| {
                         cache.variables.insert(variable.to_string(), v.clone());
-                        reduce_context.identity = Some(self.process(&mut reduce_context, cache, terms));
-                        reduce_context.identity.clone()
+                        reduce_context.identity = Some(acc);
+                        self.process(&mut reduce_context, cache, terms)
                     });
-                    context.identity = Some(result.clone());
 
-                    trace!("Term::reduce result: {:?}", result);
                     Some(result)
                 },
                 Term::map(terms) => {
-                    let result = iterate(&self.to_iterable(context, cache), |v| {
+                    let result = iterate(self.to_iterable(context, cache), |v| {
                         Some(self.process(&mut context.clone_value(Some(v)), cache, terms))
                     });
                     Some(result)
                 },
                 Term::object(obj_terms) => {
-                    if let Some(value) = &context.identity {
+                    if let Some(value) = context.identity.take() {
                         Some(iterate(value, |v| {
                             let output = self.process(&mut context.clone_value(Some(v)), cache, obj_terms);
                             Some(Value::Object(Box::new(output)))
@@ -256,34 +255,36 @@ impl TermsProcessor for StaticContext<'_> {
                     self.traverse_terms_inner(&mut context.clone(), cache, terms)
                 },
                 Term::string(text) => {
+
                     Some(Value::Str(text.to_string()))
                 },
-                Term::transpose => match context.identity.as_ref().unwrap_or(&Value::Empty) {
+                Term::transpose => match context.identity.take().unwrap_or(Value::Empty) {
                     Value::List(values) => {
                         trace!("transpose input {:?}", values);
-                        let lists: Vec<Vec<Value>> = values
-                            .iter()
-                            .filter_map(|value| match value {
-                                Value::List(v) => Some(v.clone()),
-                                _ => None,
-                            })
-                            .collect();
+
+                        let mut lists = Vec::new();
+                        for value in values {
+                            match value {
+                                Value::List(v) => lists.push(v),
+                                _ => {},
+                            }
+                        }
 
                         let max = lists
                             .iter()
                             .fold(0u64, |max, list| u64::max(max, list.len() as u64));
 
-                        let outer: Vec<Value> = (0..max)
-                            .map(|i| {
-                                let inner = lists
-                                    .iter()
-                                    .map(|list| {
-                                        list.get(i as usize).unwrap_or(&Value::Empty).clone()
-                                    })
-                                    .collect();
-                                Value::List(inner)
-                            })
-                            .collect();
+                        let mut outer = Vec::new();
+                        for i in 0..max {
+                            let inner = lists
+                                .iter()
+                                .map(|list| {
+                                    list.get(i as usize).unwrap_or(&Value::Empty).clone()
+                                })
+                                .collect();
+
+                            outer.push(Value::List(inner));
+                        }
                         trace!("transpose output {:?}", outer);
                         Some(Value::List(outer))
                     }
@@ -295,13 +296,8 @@ impl TermsProcessor for StaticContext<'_> {
                 Term::signed_number(value) => {
                     Some(Value::I64(*value))
                 },
-                x => {
-                    Some(self.traverse_term(context, cache, &term.clone()))
-                }
+                _ => Some(self.traverse_term(context, cache, term))
             };
-
-            // emptys out new value, and if no new value is set previous is no longer there
-            context.identity = result; // why can't I take this?
         }
 
         context.identity.take()
@@ -345,43 +341,45 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
     }
 
     fn index(&self, context: &mut TraversalContext, index: usize) {
-        let value = context.identity.as_ref().unwrap_or(&Value::Empty);
-        match value {
-            Value::List(list) => match list.get(index) {
-                Some(value) => context.identity = Some(value.clone()),
+        let value = context.identity.take().unwrap_or(Value::Empty);
+        context.identity = match value {
+            Value::List(list) => match list.into_iter().nth(index) {
+                Some(value) => Some(value),
                 None => panic!("attempt to index outside list"),
             },
             Value::Str(str) => match str.chars().nth(index) {
-                Some(value) => context.identity = Some(Value::Str(value.to_string())),
+                Some(value) => Some(Value::Str(value.to_string())),
                 None => panic!("attempt to index outside string"),
             },
             _ => panic!("attempt to index non-indexable value {:?}", value),
-        }
+        };
     }
 
     fn slice(&self, context: &mut TraversalContext, from: usize, to: usize) {
-        let value = context.identity.as_ref().unwrap_or(&Value::Empty);
-        match value {
+        let value = context.identity.take().unwrap_or(Value::Empty);
+        context.identity = match value {
             Value::List(list) => {
-                context.identity = Some(Value::List(list[from..usize::min(to, list.len())].to_vec()))
+                let sliced = list[from..usize::min(to, list.len())].to_vec();
+                Some(Value::List(sliced))
             }
-            Value::Str(str) => context.identity = Some(Value::Str(str[from..to].to_string())),
+            Value::Str(str) => Some(Value::Str(str[from..to].to_string())),
             _ => panic!("attempt to index non-indexable value {:?}", value),
-        }
+        };
+        warn!("slice {:?}", context.identity);
     }
 
     fn to_iterable(&self, context: &mut TraversalContext, cache: &mut SharedCache) -> Value {
         self.enter_foreign(context, cache);
-        let value = context.identity.as_ref().unwrap_or(&Value::Empty);
-        let iteratable = match value {
-            Value::List(list) => Value::Iterator(list.clone()),
-            Value::Iterator(list) => Value::Iterator(list.clone()),
+        let value = context.identity.take().unwrap_or(Value::Empty);
+        let iterable = match value {
+            Value::List(list) => Value::Iterator(list),
+            Value::Iterator(list) => Value::Iterator(list),
             Value::Object(content) => {
-                let fields = match &**content {
+                let fields = match *content {
                     Value::List(fields) => fields,
                     _ => panic!("attempt to iterate an empty object"),
                 };
-                Value::Iterator(fields.clone())
+                Value::Iterator(fields)
             }
             Value::Empty => Value::Iterator(Vec::with_capacity(0)),
             obj => panic!(
@@ -389,7 +387,7 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
                 obj
             ),
         };
-        iteratable
+        iterable
     }
 
     fn value(&self, context: &mut TraversalContext) -> Value {
@@ -397,79 +395,76 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
             return Value::Empty;
         }
 
-        match context.identity.as_ref().unwrap() {
+        match context.identity.take().unwrap() {
             // TODO: extract to function
             Value::Object(entries) => {
-                let v = match &**entries {
+                match *entries {
                     Value::List(list) => {
-                        let values: Vec<Value> = list
-                            .iter()
-                            .filter_map(|field| match field {
+                        let mut values = Vec::new();
+                        for field in list {
+                            match field {
                                 Value::KeyValue(key, value) => {
-                                    if **key == Value::Str(context.current_field.clone().unwrap()) {
-                                        Some(*value.clone())
-                                    } else {
-                                        None
+                                    if *key == Value::Str(context.current_field.clone().unwrap()) {
+                                        values.push(*value);
                                     }
-                                }
-                                _ => panic!("failed to extract value from kv"),
-                            })
-                            .collect();
+                                },
+                                _ => {}
+                            }
+                        }
 
-                        values.first().unwrap_or(&Value::Empty).clone()
+                        values.into_iter().nth(0).unwrap_or(Value::Empty)
                     }
                     Value::KeyValue(key, value) => {
-                        if **key == Value::Str(context.current_field.clone().unwrap()) {
-                            *value.clone()
+                        if *key == Value::Str(context.current_field.clone().unwrap()) {
+                            *value
                         } else {
                             Value::Empty
                         }
                     }
                     _ => panic!("failed to extract value from kv! {:?}", entries),
-                };
-                return v.clone();
-            }
+                }
+            },
             Value::Iterator(values) => {
-                let result: Vec<Value> = values
-                    .iter()
-                    .map(|value| match value {
+                let mut result = Vec::new();
+                for value in values {
+                    let item = match value {
                         Value::KeyValue(k, v) => {
-                            if Value::Str(context.current_field.clone().unwrap()) == **k {
-                                *v.clone()
+                            if Value::Str(context.current_field.clone().unwrap()) == *k {
+                                *v
                             } else {
                                 Value::Empty
                             }
-                        }
+                        },
                         Value::Object(elements) => {
-                            let obj = match *elements.clone() {
+                            let obj = match *elements {
                                 Value::List(fields) => fields,
                                 _ => panic!("uhm: {:?}", elements),
                             };
-                            obj.iter()
-                                .filter_map(|field| match field {
+
+                            let mut first = Value::Empty;
+                            for kv in obj {
+                                match kv {
                                     Value::KeyValue(k, v) => {
-                                        if Value::Str(context.current_field.clone().unwrap()) == **k {
-                                            Some(*v.clone())
-                                        } else {
-                                            None
+                                        if Value::Str(context.current_field.clone().unwrap()) == *k {
+                                            first = *v;
+                                            break;
                                         }
                                     }
                                     asd => panic!("what happened? {:?}", asd),
-                                })
-                                .collect::<Vec<Value>>()
-                                .first()
-                                .unwrap_or(&Value::Empty)
-                                .clone()
-                        }
+                                }
+                            }
+                            first
+                        },
                         val => panic!(
                             "Attempting to get field of non-iterable and non-object. {:?}",
                             val
                         ),
-                    })
-                    .collect();
+                    };
+                    result.push(item);
+                }
 
-                return Value::List(result);
-            }
+                Value::List(result)
+            },
             Value::U64(i) => {
                 let current = context.current_file.as_ref().unwrap();
                 let spec = self.store.spec(&current).unwrap();
@@ -482,15 +477,15 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
                     .map(move |field| {
                         Value::KeyValue(
                             Box::new(Value::Str(field.name.clone())),
-                            Box::new(file.read_field(*i, &field)),
+                            Box::new(file.read_field(i, &field)),
                         )
                     })
                     .collect();
 
-                return Value::Object(Box::new(Value::List(kv_list)));
-            }
+                Value::Object(Box::new(Value::List(kv_list)))
+            },
             _ => return Value::Empty,
-        };
+        }
     }
 
     fn identity(&self, context: &mut TraversalContext) -> Value {
@@ -514,16 +509,16 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
         if current_field.is_some() && current_field.unwrap().is_foreign_key() {
             context.current_field = None;
 
-            let value = context.identity.clone().unwrap_or(Value::Empty);
+            let value = context.identity.take().unwrap_or(Value::Empty);
             let value = match value {
-                Value::List(items) => Value::Iterator(items.clone()),
+                Value::List(items) => Value::Iterator(items),
                 _ => value,
             };
 
-            let result = iterate(&value, |v| {
+            let result = iterate(value, |v| {
                 let ids: Vec<u64> = match v {
-                    Value::List(ids) => ids.clone(),     // TODO: yikes
-                    Value::Iterator(ids) => ids.clone(), // TODO: yikes
+                    Value::List(ids) => ids,
+                    Value::Iterator(ids) => ids,
                     Value::U64(id) => vec![Value::U64(id)],
                     Value::Empty => vec![],
                     item => panic!("Not a valid id for foreign key: {:?}", item),
@@ -571,41 +566,43 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
         if values.len() > 1 {
             Value::List(values)
         } else {
-            values.first().unwrap_or(&Value::Empty).clone()
+            values.into_iter().nth(0).unwrap_or(Value::Empty)
         }
     }
 }
 
 // TODO: move this somewhere else
-fn iterate<F>(value: &Value, mut action: F) -> Value
+fn iterate<F>(value: Value, mut action: F) -> Value
 where
     F: FnMut(Value) -> Option<Value> + Send + Sync,
 {
     match value {
-        Value::Iterator(elements) => Value::List(
-            elements
-                .iter()
-                .filter_map(|e| action(e.clone()))
-                .collect(),
-        ),
-        _ => action(value.clone()).expect("non-iterable must return something"),
+        Value::Iterator(elements) => {
+            let mut list = Vec::new();
+            for e in elements {
+                match action(e) {
+                    Some(value) => list.push(value),
+                    _ => {}
+                }
+            }
+            Value::List(list)
+        },
+        v => action(v).expect("non-iterable must return something"),
     }
 }
 
-fn reduce<F>(value: &Value, action: &mut F) -> Value
+fn reduce<F>(initial: Value, action: &mut F) -> Value
 where
-    F: FnMut(&Value) -> Option<Value>,
+    F: FnMut(Value, Value) -> Value,
 {
-    let mut result = Value::Empty;
-    match value {
+    match initial {
         Value::Iterator(elements) => {
-            elements.iter().for_each(|e| {
-                result = action(e).expect("reduce operation must return a value");
-            });
+            elements.into_iter().reduce(|accum, item| {
+                action(accum, item)
+            }).unwrap_or(Value::Empty)
         }
         _ => {
-            result = action(value).expect("reduce operation must return a value");
+            action(Value::Empty, initial)
         }
     }
-    result
 }

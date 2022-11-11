@@ -4,7 +4,6 @@ use std::fmt::Error;
 use log::*;
 use std::io::Cursor;
 use std::process;
-use std::time::Instant;
 use crate::traversal::value::Value;
 
 use super::specification::FieldSpec;

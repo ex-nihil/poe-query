@@ -1,10 +1,8 @@
 use log::*;
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
-use std::fmt;
 use std::ops;
 use std::ops::Deref;
 use std::process;
-use std::time::Instant;
 
 #[derive(Debug, Clone, PartialOrd, PartialEq)]
 pub enum Value {
