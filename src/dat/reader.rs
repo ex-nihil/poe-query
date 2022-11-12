@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
 use log::info;
 use poe_bundle::reader::{BundleReader, BundleReaderRead};
@@ -17,7 +18,7 @@ pub struct DatContainer<'a> {
 
 impl<'a> DatContainer<'a> {
 
-    pub fn from_install(bundles: &'a BundleReader, spec_path: &str) -> DatContainer<'a> {
+    pub fn from_install(bundles: &'a BundleReader, spec_path: &Path) -> DatContainer<'a> {
         let enums = FileSpec::read_all_enum_specs(spec_path);
         let specs = FileSpec::read_all_specs(spec_path, &enums);
 

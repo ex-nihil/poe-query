@@ -5,6 +5,8 @@ extern crate pest_derive;
 extern crate simplelog;
 
 
+use std::{env, process};
+use std::path::PathBuf;
 use std::time::Instant;
 
 use clap::{App, Arg};
@@ -12,8 +14,9 @@ use log::*;
 use poe_bundle::BundleReader;
 use simplelog::*;
 
-use dat::reader::{DatContainer};
+use dat::reader::DatContainer;
 pub use query::Term;
+
 use crate::traversal::traverse::{SharedCache, StaticContext, TermsProcessor, TraversalContext};
 use crate::traversal::value::Value;
 
@@ -32,7 +35,6 @@ fn main() {
                 .long("path")
                 .value_name("DIRECTORY")
                 .help("Specify location of Path of Exile installation.")
-                .required(true)
                 .takes_value(true),
         )
         .arg(
@@ -66,19 +68,25 @@ fn main() {
     CombinedLogger::init(vec![TermLogger::new(
         log_level,
         Config::default(),
-        TerminalMode::Stderr
+        TerminalMode::Stderr,
     )])
-    .expect("logger");
+        .expect("logger");
+
 
     let query = matches.value_of("query").expect("query arg");
-    let path = matches.value_of("path").expect("path arg");
+
+    let path = find_poe_install(matches.value_of("path"));
+    let specs = dat_schema_path();
+    info!("Using {:?}", path);
+    info!("Specs {:?}", specs);
+
     let terms = query::parse(query);
-    debug!("terms: {:?}", terms);
 
     let mut now = Instant::now();
 
-    let bundles = BundleReader::from_install(path);
-    let container = DatContainer::from_install(&bundles, "./dat-schema");
+    let bundles = BundleReader::from_install(path.to_str().unwrap());
+
+    let container = DatContainer::from_install(&bundles, specs.as_path());
     let navigator = StaticContext {
         store: &container,
     };
@@ -89,7 +97,7 @@ fn main() {
         current_field: None,
         current_file: None,
         dat_file: None,
-        identity: None
+        identity: None,
     }, &mut SharedCache { variables: Default::default(), files: Default::default() }, &terms);
     let query_ms = now.elapsed().as_millis();
 
@@ -101,15 +109,44 @@ fn main() {
                 let serialized = serde_json::to_string_pretty(item).expect("seralized");
                 println!("{}", serialized);
             });
-        },
+        }
         _ => {
             let serialized = serde_json::to_string_pretty(&value).expect("serialized2");
             println!("{}", serialized);
-        },
+        }
     };
     let serialize_ts = now.elapsed().as_millis();
 
     info!("setup spent: {}ms", read_index_ms);
     info!("query spent: {}ms", query_ms);
     info!("serialize spent: {}ms", serialize_ts);
+}
+
+fn find_poe_install(path_arg: Option<&str>) -> PathBuf {
+    match path_arg {
+        Some(p) => Some(PathBuf::from(format!("{}", p))),
+        None =>
+            [
+                "./Content.ggpk",
+                "C:/Program Files (x86)/Grinding Gear Games/Path of Exile/Content.ggpk"
+            ].into_iter()
+                .find_map(|p| {
+                    match PathBuf::from(p) {
+                        p if p.exists() => {
+                            Some(p.parent().unwrap().canonicalize().unwrap())
+                        }
+                        _ => None
+                    }
+                })
+    }.unwrap_or_else(|| {
+        error!("Path of Exile not found. Provide a path with -p flag.");
+        process::exit(-1);
+    })
+}
+
+fn dat_schema_path() -> PathBuf {
+    let mut schema_dir = env::current_exe().unwrap();
+    schema_dir.pop(); // remove file
+    schema_dir.push("dat-schema");
+    schema_dir
 }

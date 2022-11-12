@@ -306,7 +306,7 @@ impl TermsProcessor for StaticContext<'_> {
 
 impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
     fn child(&self, context: &mut TraversalContext, cache: &mut SharedCache, name: &str) {
-        debug!("child {}", name);
+        debug!("entered {}", name);
         let spec = self.store.spec_by_export(name);
         if context.current_file.is_none() && spec.is_some() {
             let spec = spec.unwrap();
@@ -365,7 +365,6 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
             Value::Str(str) => Some(Value::Str(str[from..to].to_string())),
             _ => panic!("attempt to index non-indexable value {:?}", value),
         };
-        warn!("slice {:?}", context.identity);
     }
 
     fn to_iterable(&self, context: &mut TraversalContext, cache: &mut SharedCache) -> Value {

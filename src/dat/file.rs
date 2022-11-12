@@ -82,7 +82,6 @@ pub trait DatFileRead {
 impl DatFileRead for DatFile {
 
     fn valid(&self, spec: &FileSpec) {
-        debug!("validate {} against specification", spec.filename);
         let last_field = spec.fields.last();
         if let Some(field) = last_field {
             let spec_row_size = (field.offset + FileSpec::field_size(field)) as usize;
@@ -115,7 +114,7 @@ impl DatFileRead for DatFile {
         }
 
         let mut c = Cursor::new(&self.bytes[exact_offset..]);
-        trace!("reading {:?} from row {}", field, row);
+
 
         let mut parts = field.datatype.split("|");
         let prefix = parts.next();
@@ -123,7 +122,7 @@ impl DatFileRead for DatFile {
             match c.u32() {
                 Value::U64(v) => Value::Str(enum_spec.value(v as usize)),
                 Value::Empty => Value::Empty,
-                x => panic!("{:?}", x)
+                x => panic!("reading {} from row {} - got {:?}", field, row, x)
             }
         } else if prefix.filter(|&dtype| "list" == dtype).is_some() {
             let length = c.u32();
@@ -133,16 +132,15 @@ impl DatFileRead for DatFile {
                 _ => Value::Empty
             }
         } else if prefix.filter(|&dtype| "ref" == dtype).is_some() {
-
             match c.u32() {
                 Value::U64(offset) => self.read_value(offset, parts.next().unwrap()),
                 Value::Empty => Value::Empty,
-                x => panic!("{:?}", x)
+                x => panic!("reading {} from row {} - got {:?}", field, row, x)
             }
         } else {
             c.read_value(field.datatype.as_str())
         };
-        trace!("result {} {:?}", field.name, result);
+        trace!("Read {} [{}]. Result: {:?}", field, row, result);
         result
     }
 
@@ -155,7 +153,6 @@ impl DatFileRead for DatFile {
     }
 
     fn read_list(&self, offset: u64, len: u64, data_type: &str) -> Vec<Value> {
-        debug!("read_list {} len({}) {}", offset, len, data_type);
         let exact_offset = self.data_section + offset as usize;
         self.check_offset(exact_offset);
 

@@ -1,4 +1,7 @@
 use std::collections::HashMap;
+use std::fmt;
+use std::fmt::Formatter;
+use std::path::Path;
 
 use apollo_parser::ast::AstNode;
 use serde::Deserialize;
@@ -32,9 +35,15 @@ pub struct FieldSpec {
     pub offset: u64,
 }
 
+impl fmt::Display for FieldSpec {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {}({})", self.file, self.name, self.datatype)
+    }
+}
+
 impl FileSpec {
 
-    pub fn read_all_enum_specs(path: &str) -> HashMap<String, EnumSpec> {
+    pub fn read_all_enum_specs(path: &Path) -> HashMap<String, EnumSpec> {
         use apollo_parser::Parser;
         use apollo_parser::ast::Definition;
 
@@ -92,7 +101,7 @@ impl FileSpec {
         return enum_specs;
     }
 
-    pub fn read_all_specs(path: &str, enum_specs: &HashMap<String, EnumSpec>) -> HashMap<String, FileSpec> {
+    pub fn read_all_specs(path: &Path, enum_specs: &HashMap<String, EnumSpec>) -> HashMap<String, FileSpec> {
         use apollo_parser::Parser;
         use apollo_parser::ast::Definition;
         use apollo_parser::ast::Type;

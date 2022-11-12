@@ -1,5 +1,6 @@
 use pest::Parser;
 use std::fmt::Debug;
+use log::debug;
 
 #[derive(Parser)]
 #[grammar = "query/grammar.pest"]
@@ -66,6 +67,7 @@ pub fn parse(source: &str) -> Vec<Term> {
     for pair in pairs {
         build_ast(pair, &mut output);
     }
+    debug!("Query Terms: {:?}", output);
     return output;
 }
 
