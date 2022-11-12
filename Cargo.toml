@@ -1,6 +1,6 @@
 [package]
 name = "poe_query"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Daniel Dimovski <daniel.k.dimovski@gmail.com>"]
 edition = "2021"
 
@@ -11,7 +11,7 @@ edition = "2021"
 debug = true
 
 [dependencies]
-poe_bundle = "0.1.0"
+poe_bundle = "0.1.1"
 pest = "2.1.3"
 pest_derive = "2.1.0"
 log = "0.4.11"

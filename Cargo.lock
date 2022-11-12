@@ -87,9 +87,9 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
 name = "chrono"
-version = "0.4.22"
+version = "0.4.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bfd4d1b31faaa3a89d7934dbded3111da0d2ef28e3ebccdb4f0179f5929d1ef1"
+checksum = "16b0a3d9ed01224b22057780a37bb8c5dbfe1be8ba48678e7bf57ec4b385411f"
 dependencies = [
  "iana-time-zone",
  "js-sys",
@@ -485,9 +485,9 @@ dependencies = [
 
 [[package]]
 name = "poe_bundle"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68e25420bad000101d369265e8530fe419d4d0ab7bc0eaf18d04786afa5b1834"
+checksum = "5aa29d33b47d213fc1da31dca345be662ea9341ec7a3d7d3254e4da4474507a8"
 dependencies = [
  "byteorder",
  "cmake",
@@ -498,7 +498,7 @@ dependencies = [
 
 [[package]]
 name = "poe_query"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "apollo-parser",
  "byteorder",
