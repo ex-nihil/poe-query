@@ -23,8 +23,8 @@ pub mod traversal;
 
 fn main() {
     let matches = App::new("PoE DAT transformer")
-        .version("1.0.0")
-        .author("Daniel D. <daniel.k.dimovski@gmail.com>")
+        .version("0.1.2")
+        .author("Daniel D. <daniel@timeloop.se>")
         .about("Query and transform data from Path of Exile")
         .arg(
             Arg::with_name("path")

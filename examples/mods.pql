@@ -1,33 +1,33 @@
 .Mods[0] |
 {
-    "id": .Id,
-    "domain": .Domain,
-    "type": .GenerationType,
-    "name": .Name,
-    "ilvl": .Level,
-    "mod_type": .ModTypeKey.Name,
-    "stats": {
-        .StatsKey1.Id: {
-            "min": .Stat1Min,
-            "max": .Stat1Max,
+    id: .Id,
+    domain: .Domain,
+    type: .GenerationType,
+    name: .Name,
+    ilvl: .Level,
+    mod_type: .ModTypeKey.Name,
+    stats: {
+        (.StatsKey1.Id): {
+            min: .Stat1Min,
+            max: .Stat1Max,
         },
-        .StatsKey2.Id: {
-            "min": .Stat2Min,
-            "max": .Stat2Max,
+        (.StatsKey2.Id): {
+            min: .Stat2Min,
+            max: .Stat2Max,
         },
-        .StatsKey3.Id: {
-            "min": .Stat3Min,
-            "max": .Stat3Max,
+        (.StatsKey3.Id): {
+            min: .Stat3Min,
+            max: .Stat3Max,
         },
-        .StatsKey4.Id: {
-            "min": .Stat4Min,
-            "max": .Stat4Max,
+        (.StatsKey4.Id): {
+            min: .Stat4Min,
+            max: .Stat4Max,
         },
-        .StatsKey5.Id: {
-            "min": .Stat5Min,
-            "max": .Stat5Max,
+        (.StatsKey5.Id): {
+            min: .Stat5Min,
+            max: .Stat5Max,
         },
     },
-    "spawn_weights": [.SpawnWeight_TagsKeys[].Id, .SpawnWeight_Values] | zip_to_obj,
-    "gen_weights": [.GenerationWeight_TagsKeys[].Id, .GenerationWeight_Values] | zip_to_obj
+    spawn_weights: [.SpawnWeight_TagsKeys[].Id, .SpawnWeight_Values] | zip_to_obj,
+    gen_weights: [.GenerationWeight_TagsKeys[].Id, .GenerationWeight_Values] | zip_to_obj
 }
