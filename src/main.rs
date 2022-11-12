@@ -26,7 +26,7 @@ pub mod traversal;
 
 fn main() {
     let matches = App::new("PoE DAT transformer")
-        .version("0.1.2")
+        .version(env!("CARGO_PKG_VERSION"))
         .author("Daniel D. <daniel@timeloop.se>")
         .about("Query and transform data from Path of Exile")
         .arg(
