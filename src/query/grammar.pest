@@ -10,8 +10,7 @@ digits = @{ ASCII_DIGIT+ }
 slice_from = { digits+ }
 slice_to = { digits+ }
 
-index_reverse = { &ANY ~ "[-" ~ digits+ ~ "]" }
-index = { &ANY ~ "[" ~ digits+ ~ "]" }
+index = { &ANY ~ "[" ~ number+ ~ "]" }
 slice = { &ANY ~ "[" ~ slice_from? ~ ":" ~ slice_to? ~ "]" }
 iterator = { &ANY ~ "[]" }
 
@@ -59,7 +58,7 @@ array_construction = { "[" ~ query* ~ "]" }
 optional = { "?" }
 
 functions = _ { map | reduce | transpose | zip_to_obj }
-filter = _{ functions | assign_variable | variable | select | iterator | field | index_reverse | index | slice | identity }
+filter = _{ functions | assign_variable | variable | select | iterator | field | index | slice | identity }
 query = _{ operator? ~ (datatypes | filter | array_construction | object_construct) }
 
 pipe = { "|" }

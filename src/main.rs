@@ -19,6 +19,7 @@ use crate::traversal::value::Value;
 mod dat;
 mod query;
 mod traversal;
+mod tests;
 
 #[derive(clap::Parser)]
 #[command(name = "PoE Query")]
@@ -66,17 +67,12 @@ fn main() {
 
     let container = DatContainer::from_install(&bundles, specs.as_path());
     let navigator = StaticContext {
-        store: &container,
+        store: Some(&container),
     };
     let read_index_ms = now.elapsed().as_millis();
 
     now = Instant::now();
-    let value = navigator.process(&mut TraversalContext {
-        current_field: None,
-        current_file: None,
-        dat_file: None,
-        identity: None,
-    }, &mut SharedCache { variables: Default::default(), files: Default::default() }, &terms);
+    let value = navigator.process(&mut TraversalContext::default(), &mut SharedCache::default(), &terms);
     let query_ms = now.elapsed().as_millis();
 
     now = Instant::now();

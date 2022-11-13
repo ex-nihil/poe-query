@@ -1,15 +1,17 @@
-use log::*;
 use std::collections::HashMap;
-use crate::dat::file::{DatFile, DatFileRead};
-use crate::dat::reader::DatStoreImpl;
+
+use log::*;
+
 use crate::{DatContainer, Term};
-use crate::query::{Compare, Operation};
+use crate::dat::file::DatFile;
+use crate::dat::reader::DatStoreImpl;
 use crate::dat::specification::FieldSpecImpl;
+use crate::query::{Compare, Operation};
 
 use super::value::Value;
 
 pub struct StaticContext<'a> {
-    pub store: &'a DatContainer<'a>,
+    pub store: Option<&'a DatContainer<'a>>,
 }
 
 /** Local context */
@@ -19,6 +21,25 @@ pub struct TraversalContext<'a> {
     pub current_file: Option<String>,
     pub dat_file: Option<&'a DatFile>,
     pub identity: Option<Value>,
+}
+
+impl Default for TraversalContext<'_> {
+    fn default() -> Self {
+        Self {
+            current_field: None,
+            current_file: None,
+            dat_file: None,
+            identity: None,
+        }
+    }
+}
+
+impl Default for StaticContext<'_> {
+    fn default() -> Self {
+        Self {
+            store: None
+        }
+    }
 }
 
 /** Shared cache */
@@ -38,9 +59,19 @@ impl TraversalContext<'_> {
     }
 }
 
+impl Default for SharedCache {
+    fn default() -> Self {
+        Self {
+            variables: Default::default(),
+            files: Default::default()
+        }
+    }
+}
+
 pub trait TraversalContextImpl<'a> {
     fn child(&self, context: &mut TraversalContext, cache: &mut SharedCache, name: &str);
     fn index(&self, context: &mut TraversalContext, index: usize);
+    fn index_reverse(&self, context: &mut TraversalContext, index: usize);
     fn slice(&self, context: &mut TraversalContext, from: usize, to: usize);
     fn to_iterable(&self, context: &mut TraversalContext, cache: &mut SharedCache) -> Value;
     fn value(&self, context: &mut TraversalContext) -> Value;
@@ -51,12 +82,17 @@ pub trait TraversalContextImpl<'a> {
 }
 
 pub trait TermsProcessor {
+    fn process_terms(&self, terms: &[Term]) -> Value;
     fn process(&self, context: &mut TraversalContext, cache: &mut SharedCache, parsed_terms: &[Term]) -> Value;
     fn traverse_term(&self, context: &mut TraversalContext, cache: &mut SharedCache, term: &Term) -> Value;
     fn traverse_terms_inner(&self, context: &mut TraversalContext, cache: &mut SharedCache, terms: &[Term]) -> Option<Value>;
 }
 
 impl TermsProcessor for StaticContext<'_> {
+    fn process_terms(&self, terms: &[Term]) -> Value {
+        self.process(&mut TraversalContext::default(), &mut SharedCache::default(), terms)
+    }
+
     fn process(&self, context: &mut TraversalContext, cache: &mut SharedCache, parsed_terms: &[Term]) -> Value {
         let values: Vec<Value> = if parsed_terms.contains(&Term::comma) {
             parsed_terms
@@ -94,6 +130,10 @@ impl TermsProcessor for StaticContext<'_> {
             }
             Term::by_index(i) => {
                 self.index(context, *i);
+                context.identity.take().unwrap_or(Value::Empty)
+            }
+            Term::by_index_reverse(i) => {
+                self.index_reverse(context, *i);
                 context.identity.take().unwrap_or(Value::Empty)
             }
             Term::slice(from, to) => {
@@ -227,11 +267,11 @@ impl TermsProcessor for StaticContext<'_> {
                 Term::identity => {
                     if context.current_file.is_none() && context.identity.is_none() {
                         let exports: Vec<Value> = self
-                            .store
+                            .store.unwrap()
                             .exports()
                             .iter()
                             .map(|export| {
-                                let spec = self.store.spec_by_export(export).unwrap();
+                                let spec = self.store.unwrap().spec_by_export(export).unwrap();
 
                                 Value::KeyValue(
                                     Box::new(Value::Str(spec.export.to_string())),
@@ -307,12 +347,12 @@ impl TermsProcessor for StaticContext<'_> {
 impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
     fn child(&self, context: &mut TraversalContext, cache: &mut SharedCache, name: &str) {
         debug!("entered {}", name);
-        let spec = self.store.spec_by_export(name);
+        let spec = self.store.map(|s| s.spec_by_export(name)).flatten();
         if context.current_file.is_none() && spec.is_some() {
             let spec = spec.unwrap();
 
             // generate initial values
-            let file = cache.files.entry(spec.filename.to_string()).or_insert_with(|| self.store.file(&spec.filename).unwrap());
+            let file = cache.files.entry(spec.filename.to_string()).or_insert_with(|| self.store.unwrap().file(&spec.filename).unwrap());
 
             let values: Vec<Value> = (0..file.rows_count)
                 .map(|i| {
@@ -346,6 +386,24 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
             Value::List(list) => match list.into_iter().nth(index) {
                 Some(value) => Some(value),
                 None => panic!("attempt to index outside list"),
+            },
+            Value::Str(str) => match str.chars().nth(index) {
+                Some(value) => Some(Value::Str(value.to_string())),
+                None => panic!("attempt to index outside string"),
+            },
+            _ => panic!("attempt to index non-indexable value {:?}", value),
+        };
+    }
+
+    fn index_reverse(&self, context: &mut TraversalContext, index: usize) {
+        let value = context.identity.take().unwrap_or(Value::Empty);
+        context.identity = match value {
+            Value::List(list) => {
+                let size = list.len();
+                match list.into_iter().nth(size - index) {
+                    Some(value) => Some(value),
+                    None => panic!("attempt to index outside list"),
+                }
             },
             Value::Str(str) => match str.chars().nth(index) {
                 Some(value) => Some(Value::Str(value.to_string())),
@@ -466,8 +524,8 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
             },
             Value::U64(i) => {
                 let current = context.current_file.as_ref().unwrap();
-                let spec = self.store.spec(&current).unwrap();
-                let file = self.store.file(&current).unwrap();
+                let spec = self.store.unwrap().spec(&current).unwrap();
+                let file = self.store.unwrap().file(&current).unwrap();
 
                 // TODO: extract to function
                 let kv_list: Vec<Value> = spec
@@ -494,7 +552,7 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
     fn enter_foreign(&self, context: &mut TraversalContext, cache: &mut SharedCache) {
         let current_spec = context
             .current_file.as_ref()
-            .map(|file| self.store.spec(&file))
+            .map(|file| self.store.unwrap().spec(&file))
             .flatten();
         let current_field = current_spec
             .map(|spec| {
@@ -541,9 +599,9 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
     }
 
     fn rows_from(&self, cache: &mut SharedCache, filepath: &str, indices: &[u64]) -> Value {
-        let foreign_spec = self.store.spec(filepath).unwrap();
+        let foreign_spec = self.store.unwrap().spec(filepath).unwrap();
 
-        let file = cache.files.entry(filepath.to_string()).or_insert_with(|| self.store.file(filepath).unwrap());
+        let file = cache.files.entry(filepath.to_string()).or_insert_with(|| self.store.unwrap().file(filepath).unwrap());
 
         let values: Vec<Value> = indices
             .iter()

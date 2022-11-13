@@ -69,19 +69,8 @@ impl DatFile {
         info!("Read {:?}", file);
         file
     }
-}
 
-pub trait DatFileRead {
-    fn valid(&self, spec: &FileSpec);
-    fn check_offset(&self, offset: usize);
-    fn read_field(&self, row: u64, field: &FieldSpec) -> Value;
-    fn read_value(&self, offset: u64, field_type: &str) -> Value;
-    fn read_list(&self, offset: u64, len: u64, field_type: &str) -> Vec<Value>;
-}
-
-impl DatFileRead for DatFile {
-
-    fn valid(&self, spec: &FileSpec) {
+    pub fn valid(&self, spec: &FileSpec) {
         let last_field = spec.fields.last();
         if let Some(field) = last_field {
             let spec_row_size = (field.offset + FileSpec::field_size(field)) as usize;
@@ -96,7 +85,7 @@ impl DatFileRead for DatFile {
         }
     }
 
-    fn check_offset(&self, offset: usize) {
+    pub fn check_offset(&self, offset: usize) {
         if offset > self.total_size {
             error!("Attempt to read outside DAT. This is a bug or the file is corrupted.");
             error!("{} - offset: {} size: {}", self.name, offset, self.total_size);
@@ -104,7 +93,7 @@ impl DatFileRead for DatFile {
         }
     }
 
-    fn read_field(&self, row: u64, field: &FieldSpec) -> Value {
+    pub fn read_field(&self, row: u64, field: &FieldSpec) -> Value {
         let row_offset = self.rows_begin + row as usize * self.row_size;
         let exact_offset = row_offset + field.offset as usize;
 
@@ -144,7 +133,7 @@ impl DatFileRead for DatFile {
         result
     }
 
-    fn read_value(&self, offset: u64, data_type: &str) -> Value {
+    pub fn read_value(&self, offset: u64, data_type: &str) -> Value {
         let exact_offset = self.data_section + offset as usize;
         self.check_offset(exact_offset);
 
@@ -152,7 +141,7 @@ impl DatFileRead for DatFile {
         c.read_value(data_type)
     }
 
-    fn read_list(&self, offset: u64, len: u64, data_type: &str) -> Vec<Value> {
+    pub fn read_list(&self, offset: u64, len: u64, data_type: &str) -> Vec<Value> {
         let exact_offset = self.data_section + offset as usize;
         self.check_offset(exact_offset);
 
@@ -188,7 +177,12 @@ impl ReadBytesToValue for Cursor<&[u8]> {
 
     fn bool<'a>(&mut self) -> Value {
         return match self.read_u8() {
-            Ok(value) => Value::Bool(value != 0),
+            Ok(0) => Value::Bool(false),
+            Ok(1) => Value::Bool(true),
+            Ok(value) => {
+                warn!("Expected boolean value got {}", value);
+                Value::Bool(true)
+            },
             _ => panic!("Unable to read bool"),
         };
     }

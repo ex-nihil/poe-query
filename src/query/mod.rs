@@ -224,8 +224,12 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
         }
         Rule::index => {
             let ident = pair.into_inner().next().unwrap().as_str();
-            let index = ident.parse::<usize>().unwrap();
-            Term::by_index(index)
+            let index = ident.parse::<i64>().unwrap();
+            if index < 0 {
+                Term::by_index_reverse(-index as usize)
+            } else {
+                Term::by_index(index as usize)
+            }
         }
         Rule::iterator => Term::iterator,
         Rule::signed_number => {
@@ -273,11 +277,6 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
                 }
             }
             Term::select(lhs, comparison, rhs)
-        }
-        Rule::index_reverse => {
-            let ident = pair.into_inner().next().unwrap().as_str();
-            let index = ident.parse::<usize>().unwrap();
-            Term::by_index_reverse(index)
         }
         Rule::slice => {
             let mut inner = pair.into_inner();

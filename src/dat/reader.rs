@@ -3,7 +3,6 @@ use std::path::Path;
 
 use log::info;
 use poe_bundle::reader::{BundleReader, BundleReaderRead};
-use crate::dat::file::DatFileRead;
 
 use crate::dat::specification::EnumSpec;
 
