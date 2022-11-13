@@ -38,7 +38,7 @@ jobs:
       shell: bash
       run: |
         cd target/${{ matrix.target }}/release
-        tar czvf ../../../poe_query-${{ matrix.target }}.tar.gz $(ls poe_query poe_query.exe 2>/dev/null) ../../dat-schema
+        tar czvf ../../../poe_query-${{ matrix.target }}.tar.gz $(ls poe_query poe_query.exe 2>/dev/null) ../../../dat-schema
         cd -
 
     - name: Publish
