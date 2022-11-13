@@ -1,11 +1,11 @@
 [package]
 name = "poe_query"
-version = "0.1.4"
+version = "0.1.5"
 authors = ["Daniel <daniel@timeloop.se>"]
 edition = "2021"
 
 [dependencies]
-poe_bundle = "0.1.2"
+poe_bundle = "0.1.4"
 log = "0.4.11"
 simplelog = "0.8.0"
 clap = { version = "4.0", features = ["derive"] }

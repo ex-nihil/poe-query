@@ -293,9 +293,9 @@ dependencies = [
 
 [[package]]
 name = "ggpk"
-version = "1.2.1"
+version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a71adf70119807e7241e9a5f31982cc591257ff8038317269460016e604f0285"
+checksum = "d0bbe78d501342681c919a389de2e21c42d3948fcd3c9ebb8b392e506e65ae1f"
 dependencies = [
  "byteorder",
  "log",
@@ -494,9 +494,9 @@ dependencies = [
 
 [[package]]
 name = "poe_bundle"
-version = "0.1.2"
+version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62d0d5d402ef1f05a0f92acea4e5b386361d2ed41bb3164d8d584ee459836b62"
+checksum = "85b3b28c2a13a1eb694b0eb1e9b9d0afb3b2057e0b334a4558fe6588934cdb91"
 dependencies = [
  "byteorder",
  "cmake",
@@ -507,7 +507,7 @@ dependencies = [
 
 [[package]]
 name = "poe_query"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "apollo-parser",
  "byteorder",

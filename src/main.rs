@@ -49,6 +49,7 @@ fn main() {
         Config::default(),
         TerminalMode::Stderr,
     )]).unwrap_or_default();
+    debug!("Version {:?}", env!("CARGO_PKG_VERSION"));
 
     let query = arg.query;
 
