@@ -1,90 +1,67 @@
-extern crate log;
-extern crate pest;
 #[macro_use]
 extern crate pest_derive;
-extern crate simplelog;
-
 
 use std::{env, process};
 use std::path::PathBuf;
 use std::time::Instant;
 
-use clap::{App, Arg};
+use clap::Parser;
 use log::*;
-use poe_bundle::BundleReader;
 use simplelog::*;
+use poe_bundle::BundleReader;
 
-use dat::reader::DatContainer;
-pub use query::Term;
+use crate::dat::reader::DatContainer;
+use crate::query::Term;
 
 use crate::traversal::traverse::{SharedCache, StaticContext, TermsProcessor, TraversalContext};
 use crate::traversal::value::Value;
 
 mod dat;
-pub mod query;
-pub mod traversal;
+mod query;
+mod traversal;
+
+#[derive(clap::Parser)]
+#[command(name = "PoE Query")]
+#[command(author = "Daniel D. <daniel@timeloop.se>")]
+#[command(version = env ! ("CARGO_PKG_VERSION"))]
+#[command(about = "Query and transform data from Path of Exile", long_about = None)]
+struct Args {
+    #[arg(short, long, value_name = "INSTALL_DIR")]
+    path: Option<PathBuf>,
+
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    verbose: u8,
+
+    query: String,
+}
+
 
 fn main() {
-    let matches = App::new("PoE DAT transformer")
-        .version(env!("CARGO_PKG_VERSION"))
-        .author("Daniel D. <daniel@timeloop.se>")
-        .about("Query and transform data from Path of Exile")
-        .arg(
-            Arg::with_name("path")
-                .short("p")
-                .long("path")
-                .value_name("DIRECTORY")
-                .help("Specify location of Path of Exile installation.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("limit")
-                .short("l")
-                .long("limit")
-                .help("Amount of rows to output. Useful when exploring.")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("v")
-                .short("v")
-                .multiple(true)
-                .help("Sets the level of verbosity"),
-        )
-        .arg(
-            Arg::with_name("query")
-                .value_name("\"QUERY\"")
-                .required(true)
-                .help("example: .mods.id")
-                .takes_value(true),
-        )
-        .get_matches();
+    let arg = Args::parse();
 
-    let log_level = match matches.occurrences_of("v") {
-        0 => LevelFilter::Warn,
-        1 => LevelFilter::Info,
-        2 => LevelFilter::Debug,
-        3 | _ => LevelFilter::Trace,
-    };
     CombinedLogger::init(vec![TermLogger::new(
-        log_level,
+        match arg.verbose {
+            0 => LevelFilter::Warn,
+            1 => LevelFilter::Info,
+            2 => LevelFilter::Debug,
+            3 | _ => LevelFilter::Trace,
+        },
         Config::default(),
         TerminalMode::Stderr,
-    )])
-        .expect("logger");
+    )]).unwrap_or_default();
 
+    let query = arg.query;
 
-    let query = matches.value_of("query").expect("query arg");
-
-    let path = find_poe_install(matches.value_of("path"));
+    let path = find_poe_install(arg.path);
     let specs = dat_schema_path();
     info!("Using {:?}", path);
     info!("Specs {:?}", specs);
 
-    let terms = query::parse(query);
+    let terms = query::parse(&query);
 
     let mut now = Instant::now();
 
-    let bundles = BundleReader::from_install(path.to_str().unwrap());
+    let bundles = BundleReader::from_install(path.as_path());
 
     let container = DatContainer::from_install(&bundles, specs.as_path());
     let navigator = StaticContext {
@@ -122,24 +99,34 @@ fn main() {
     info!("serialize spent: {}ms", serialize_ts);
 }
 
-fn find_poe_install(path_arg: Option<&str>) -> PathBuf {
+fn find_poe_install(path_arg: Option<PathBuf>) -> PathBuf {
     match path_arg {
-        Some(p) => Some(PathBuf::from(format!("{}", p))),
+        Some(p) => {
+            let is_file = p.exists() && p.is_file();
+            let found_ggpk = p.join("Content.ggpk").exists();
+            let found_index = p.join("Bundles2/_.index.bin").exists();
+            match is_file || found_ggpk || found_index {
+                true => Some(p),
+                false => None
+            }
+        },
         None =>
             [
-                "./Content.ggpk",
-                "C:/Program Files (x86)/Grinding Gear Games/Path of Exile/Content.ggpk"
-            ].into_iter()
+                ".",
+                "C:/Program Files (x86)/Grinding Gear Games/Path of Exile",
+                "C:/Program Files/Steam/steamapps/common/Path of Exile"
+        ].into_iter()
                 .find_map(|p| {
-                    match PathBuf::from(p) {
-                        p if p.exists() => {
-                            Some(p.parent().unwrap().canonicalize().unwrap())
-                        }
-                        _ => None
+                    let path = PathBuf::from(p);
+                    let has_ggpk = path.join("Content.ggpk").exists();
+                    let has_index = path.join("Bundles2/_.index.bin").exists();
+                    match has_ggpk || has_index {
+                        true => Some(path.canonicalize().unwrap()),
+                        false => None
                     }
                 })
     }.unwrap_or_else(|| {
-        error!("Path of Exile not found. Provide a path with -p flag.");
+        error!("Path of Exile not found. Provide a valid path with -p flag.");
         process::exit(-1);
     })
 }
