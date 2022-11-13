@@ -42,6 +42,8 @@ pub enum Compare {
     not_equals,
     less_than,
     greater_than,
+    less_than_eq,
+    greater_than_eq,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -263,12 +265,21 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
             let mut comparison = Compare::not_equals;
             for next in inner {
                 match next.as_rule() {
+                    Rule::bool_constant => {
+                        comparison = match next.into_inner().next().unwrap().as_rule() {
+                            Rule::TRUE => Compare::equals,
+                            _ => Compare::not_equals,
+                        };
+                        return Term::select(vec![Term::unsigned_number(0)], comparison, vec![Term::unsigned_number(0)]);
+                    }
                     Rule::compare => {
                         comparison = match next.into_inner().next().unwrap().as_rule() {
                             Rule::equal => Compare::equals,
                             Rule::not_equal => Compare::not_equals,
                             Rule::less_than => Compare::less_than,
                             Rule::greater_than => Compare::greater_than,
+                            Rule::less_than_eq => Compare::less_than_eq,
+                            Rule::greater_than_eq => Compare::greater_than_eq,
                             p => panic!("Operation not implemented: {:?}", p),
                         };
                         current = &mut rhs;

@@ -4,10 +4,14 @@ mod tests {
     use crate::{query, StaticContext, TermsProcessor, Value};
 
     #[test]
-    fn create_array() {
+    fn create_array_empty() {
+        // TODO: clashes with 'iterate'
         let result = process("[]");
         assert_eq!(result, vec!["[]"]);
+    }
 
+    #[test]
+    fn create_array() {
         let result = process("[0, 1, 2]");
         assert_eq!(result, vec!["[0,1,2]"]);
     }
@@ -58,8 +62,20 @@ mod tests {
     }
 
     #[test]
+    fn map() {
+        let result = process("[0, 1, 2] | map(.+1)");
+        assert_eq!(result[0], "[1,2,3]");
+    }
+
+    #[test]
     fn select() {
-        let result = process("[0, 1, 2] | map(select(. >= 2))");
+        let result = process("[0, 1, 2] | select(true)");
+        assert_eq!(result[0], "[0,1,2]");
+
+        let result = process("[0, 1, 2] | select(false)");
+        assert_eq!(result[0], "[]");
+
+        let result = process("[0, 1, 2] | select(. >= 2)");
         assert_eq!(result[0], "[2]");
     }
 

@@ -4,6 +4,10 @@ identity = { "."{1} }
 dollar = _{ "$" }
 minus = { "-" }
 
+bool_constant = { TRUE | FALSE }
+    TRUE = { "true" }
+    FALSE = { "false" }
+
 identifier = { !"." ~ (ASCII_ALPHANUMERIC | "_")+ }
 digits = @{ ASCII_DIGIT+ }
 
@@ -34,7 +38,7 @@ operation = { add | subtract | multiply | divide | power }
     power    = { "^" }
 
 // functions
-select = { "select(" ~ bool_expression ~ ")" }
+select = { "select(" ~ (bool_constant | bool_expression) ~ ")" }
 zip_to_obj = { "zip_to_obj" } // not part of JQ
 transpose = { "transpose" }
 reduce_init_value = { (datatypes | array_construction | object_construct) ~ ";" }
@@ -42,11 +46,13 @@ reduce = { "reduce" ~ (!assign_variable ~ query)+ ~ assign_variable ~ "(" ~ redu
 map = { "map(" ~ expr+ ~ ")"}
 
 bool_expression = _{ query+ ~ compare ~ query+ }
-    compare = { equal | not_equal | less_than | greater_than }
+    compare = { equal | not_equal | less_than_eq | greater_than_eq | less_than | greater_than }
         equal = { "==" }
         not_equal = { "!=" }
         less_than = { "<" }
         greater_than = { ">" }
+        less_than_eq = { "<=" }
+        greater_than_eq = { ">=" }
 
 field = { identifier }
 key = {  (quoted_string | identifier | "(" ~ (datatypes | filter)+ ~ ")")+ ~ ":" }
@@ -58,7 +64,7 @@ array_construction = { "[" ~ query* ~ "]" }
 optional = { "?" }
 
 functions = _ { map | reduce | transpose | zip_to_obj }
-filter = _{ functions | assign_variable | variable | select | iterator | field | index | slice | identity }
+filter = _{ select | functions | assign_variable | variable | iterator | field | index | slice | identity }
 query = _{ operator? ~ (datatypes | filter | array_construction | object_construct) }
 
 pipe = { "|" }

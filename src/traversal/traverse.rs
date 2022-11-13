@@ -164,6 +164,8 @@ impl TermsProcessor for StaticContext<'_> {
                             Compare::not_equals => left != right,
                             Compare::less_than => left < right,
                             Compare::greater_than => left > right,
+                            Compare::less_than_eq =>  left <= right,
+                            Compare::greater_than_eq => left >= right,
                         };
                         if selected {
                             Some(v)
