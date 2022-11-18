@@ -20,7 +20,6 @@ pub enum Term {
     select(Vec<Term>, Compare, Vec<Term>),
     calculate(Vec<Term>, Operation, Vec<Term>),
     iterator,
-    _equal,
     string(String),
     key(Vec<Term>),
     set_variable(String),
@@ -32,8 +31,9 @@ pub enum Term {
     transpose,
     identity,
     comma,
-    pipe,
     noop,
+    _pipe,
+    _equal,
 }
 
 #[derive(Debug, PartialEq, Clone)]

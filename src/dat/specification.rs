@@ -49,15 +49,11 @@ impl FileSpec {
         let mut enum_specs: HashMap<_, _> = HashMap::new();
 
         let paths = std::fs::read_dir(path).expect("spec path does not exist");
-        let mut asd: Vec<_> = paths
+        paths
             .filter_map(Result::ok)
             .map(|d| d.path())
             .filter(|pb| pb.is_file() && pb.extension().expect("gql file not found").to_string_lossy() == "gql")
-            .collect();
-
-        asd.sort(); // TODO: RIP core is last if sorted alphabetically
-
-        asd.iter().for_each(|pb| {
+            .for_each(|pb| {
             let text = std::fs::read_to_string(pb).unwrap();
 
             let parser = Parser::new(&text);
@@ -108,15 +104,11 @@ impl FileSpec {
         let mut file_specs: HashMap<String, FileSpec> = HashMap::new();
 
         let paths = std::fs::read_dir(path).expect("spec path does not exist");
-        let mut asd: Vec<_> = paths
+        paths
             .filter_map(Result::ok)
             .map(|d| d.path())
             .filter(|pb| pb.is_file() && pb.extension().expect("gql file not found").to_string_lossy() == "gql")
-            .collect();
-
-        asd.sort(); // TODO: RIP core is last if sorted alphabetically
-
-        asd.iter().for_each(|pb| {
+            .for_each(|pb| {
             let text = std::fs::read_to_string(pb).unwrap();
 
             let parser = Parser::new(&text);

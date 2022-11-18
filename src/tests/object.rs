@@ -1,6 +1,5 @@
 #[cfg(test)]
 mod object {
-    use crate::{query, Term};
     use crate::tests::test_util::process;
 
     #[test]

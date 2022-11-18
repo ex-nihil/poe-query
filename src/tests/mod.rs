@@ -54,7 +54,7 @@ pub mod test_util {
     }
 
     fn indent(levels: u8) {
-        for x in 0..levels {
+        for _ in 0..levels {
             print!("\t");
         }
     }

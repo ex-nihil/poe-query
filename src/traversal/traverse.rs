@@ -16,19 +16,31 @@ pub struct StaticContext<'a> {
 
 /** Local context */
 #[derive(Debug, Clone)]
-pub struct TraversalContext<'a> {
+pub struct TraversalContext {
     pub current_field: Option<String>,
     pub current_file: Option<String>,
-    pub dat_file: Option<&'a DatFile>,
-    pub identity: Option<Value>,
+    identity: Option<Value>,
 }
 
-impl Default for TraversalContext<'_> {
+impl TraversalContext {
+    pub fn clone_value(&self, ident: Option<Value>) -> Self {
+        Self {
+            current_field: self.current_field.clone(),
+            current_file: self.current_file.clone(),
+            identity: ident
+        }
+    }
+
+    pub fn identity(&mut self) -> Value {
+        self.identity.take().unwrap_or(Value::Empty)
+    }
+}
+
+impl Default for TraversalContext {
     fn default() -> Self {
         Self {
             current_field: None,
             current_file: None,
-            dat_file: None,
             identity: None,
         }
     }
@@ -48,16 +60,6 @@ pub struct SharedCache {
     pub files: HashMap<String, DatFile>,
 }
 
-impl TraversalContext<'_> {
-    pub fn clone_value(&self, ident: Option<Value>) -> Self {
-        Self {
-            current_field: self.current_field.clone(),
-            current_file: self.current_file.clone(),
-            dat_file: self.dat_file,
-            identity: ident
-        }
-    }
-}
 
 impl Default for SharedCache {
     fn default() -> Self {
@@ -118,32 +120,31 @@ impl TermsProcessor for StaticContext<'_> {
             None
         };
 
-        context.identity.take().unwrap_or(Value::Empty)
+        context.identity()
     }
 
     fn traverse_term(&self, context: &mut TraversalContext, cache: &mut SharedCache, term: &Term) -> Value {
         match term {
             Term::by_name(key) => {
                 self.child(context, cache, key);
-                let asd = context.identity.take().unwrap_or(Value::Empty);
-                asd
+                context.identity()
             }
             Term::kv_by_name(key) => {
                 self.child(context, cache, key);
-                let asd = context.identity.take().unwrap_or(Value::Empty);
+                let asd = context.identity();
                 Value::KeyValue(Box::new(Value::Str(key.to_string())), Box::new(asd))
             }
             Term::by_index(i) => {
                 self.index(context, *i);
-                context.identity.take().unwrap_or(Value::Empty)
+                context.identity()
             }
             Term::by_index_reverse(i) => {
                 self.index_reverse(context, *i);
-                context.identity.take().unwrap_or(Value::Empty)
+                context.identity()
             }
             Term::slice(from, to) => {
                 self.slice(context, *from, *to);
-                context.identity.take().unwrap_or(Value::Empty)
+                context.identity()
             }
             _ => panic!("unhandled term: {:?}", term),
         }
@@ -159,6 +160,7 @@ impl TermsProcessor for StaticContext<'_> {
             context.identity = match term {
                 Term::select(lhs, op, rhs) => {
                     let elems = self.to_iterable(context, cache);
+
                     let result = iterate(elems, |v| {
 
                         let left = self.process(&mut context.clone_value(Some(v.clone())), cache, lhs);
@@ -305,7 +307,7 @@ impl TermsProcessor for StaticContext<'_> {
 
                     Some(Value::Str(text.to_string()))
                 },
-                Term::transpose => match context.identity.take().unwrap_or(Value::Empty) {
+                Term::transpose => match context.identity() {
                     Value::List(values) => {
                         trace!("transpose input {:?}", values);
 
@@ -391,7 +393,7 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
     }
 
     fn index(&self, context: &mut TraversalContext, index: usize) {
-        let value = context.identity.take().unwrap_or(Value::Empty);
+        let value = context.identity();
         context.identity = match value {
             Value::List(list) => match list.into_iter().nth(index) {
                 Some(value) => Some(value),
@@ -406,7 +408,7 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
     }
 
     fn index_reverse(&self, context: &mut TraversalContext, index: usize) {
-        let value = context.identity.take().unwrap_or(Value::Empty);
+        let value = context.identity();
         context.identity = match value {
             Value::List(list) => {
                 let size = list.len();
@@ -424,7 +426,7 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
     }
 
     fn slice(&self, context: &mut TraversalContext, from: usize, to: usize) {
-        let value = context.identity.take().unwrap_or(Value::Empty);
+        let value = context.identity();
         context.identity = match value {
             Value::List(list) => {
                 let sliced = list[from..usize::min(to, list.len())].to_vec();
@@ -436,8 +438,9 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
     }
 
     fn to_iterable(&self, context: &mut TraversalContext, cache: &mut SharedCache) -> Value {
-        self.enter_foreign(context, cache);
-        let value = context.identity.take().unwrap_or(Value::Empty);
+        self.enter_foreign(context, cache); // If field is a FK
+
+        let value = context.identity();
         let iterable = match value {
             Value::List(list) => Value::Iterator(list),
             Value::Iterator(list) => Value::Iterator(list),
@@ -576,7 +579,7 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
         if current_field.is_some() && current_field.unwrap().is_foreign_key() {
             context.current_field = None;
 
-            let value = context.identity.take().unwrap_or(Value::Empty);
+            let value = context.identity();
             let value = match value {
                 Value::List(items) => Value::Iterator(items),
                 _ => value,
