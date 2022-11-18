@@ -1,6 +1,7 @@
 use log::*;
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
-use std::ops;
+use std::{fmt, ops};
+use std::fmt::Formatter;
 use std::ops::Deref;
 use std::process;
 
@@ -16,6 +17,23 @@ pub enum Value {
     Object(Box<Value>), // Make this a map instead? Comparisons might be a problem.
     Bool(bool),
     Empty,
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::Str(_) => write!(f, "String"),
+            Value::Byte(_) => write!(f, "Byte"),
+            Value::U64(_) => write!(f, "Int"),
+            Value::I64(_) => write!(f, "Int"),
+            Value::List(list) => write!(f, "List(length = {})", list.len()),
+            Value::Iterator(_) => write!(f, "Iterator"),
+            Value::KeyValue(_, _) => write!(f, "KeyValue"),
+            Value::Object(_) => write!(f, "Object"),
+            Value::Bool(_) => write!(f, "Bool"),
+            Value::Empty => write!(f, "Empty"),
+        }
+    }
 }
 
 impl ops::Add<Value> for Value {
@@ -63,7 +81,7 @@ impl ops::Add<Value> for Value {
                 )))
             }
             (lhs, rhs) => {
-                error!("Operation not supported: {:?} + {:?}", lhs, rhs);
+                error!("Operation not supported: {} + {}", lhs, rhs);
                 process::exit(-1);
             }
         }
@@ -84,7 +102,7 @@ impl ops::Sub<Value> for Value {
                 List(lhs.into_iter().filter(|e| !rhs.contains(e)).collect())
             },
             (lhs, rhs) => {
-                error!("Subtraction not supported: {:?} + {:?}", lhs, rhs);
+                error!("Subtraction not supported: {} - {}", lhs, rhs);
                 process::exit(-1);
             }
         }
