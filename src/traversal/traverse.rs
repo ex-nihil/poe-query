@@ -157,6 +157,8 @@ impl TermsProcessor for StaticContext<'_> {
         }
 
         for term in terms {
+            self.enter_foreign(context, cache);
+
             context.identity = match term {
                 Term::select(lhs, op, rhs) => {
                     let elems = self.to_iterable(context, cache);
@@ -194,6 +196,7 @@ impl TermsProcessor for StaticContext<'_> {
                     let result = match op {
                         // TODO: add operation support on the different types
                         Operation::add => lhs_result.unwrap() + rhs_result.unwrap(),
+                        Operation::subtract => lhs_result.unwrap() - rhs_result.unwrap(),
                         _ => Value::Empty,
                     };
                     Some(result)
@@ -226,17 +229,8 @@ impl TermsProcessor for StaticContext<'_> {
                         .unwrap_or(&Value::Empty)
                         .clone();
 
-                    //context.identity = initial;
-
                     let mut reduce_context = context.clone_value(initial);
-                    /*
-                    let result = reduce(&value, &mut |v| {
-                        cache.variables.insert(variable.to_string(), v.clone());
-                        context.identity = Some(self.process(context, cache, terms));
-                        warn!("Term::reduce cloned {:?}", context.identity);
-                        context.identity.clone()
-                    });
-                     */
+
                     let result = reduce(value, &mut |acc, v| {
                         cache.variables.insert(variable.to_string(), v.clone());
                         reduce_context.identity = Some(acc);
@@ -300,11 +294,43 @@ impl TermsProcessor for StaticContext<'_> {
                         _ => Some(result),
                     }
                 },
+                Term::length => match context.identity() {
+                    Value::Str(string) => Some(Value::U64(string.chars().count() as u64)),
+                    Value::List(list) => Some(Value::U64(list.len() as u64)),
+                    Value::Iterator(iterable) => Some(Value::U64(iterable.len() as u64)),
+                    Value::Object(data) => {
+                        match *data {
+                            Value::List(pairs) => Some(Value::U64(pairs.len() as u64)),
+                            _ => Some(Value::U64(0))
+                        }
+                    }
+                    Value::Empty => Some(Value::U64(0)),
+                    value => unimplemented!("Unsupported type '{:?}' for 'length' operation", value)
+                },
+                Term::keys => match context.identity() {
+                    Value::Object(data) => {
+                        match *data {
+                            Value::List(pairs) => {
+                                let keys = pairs.iter().filter_map(|kv| match kv {
+                                    Value::KeyValue(key, _) => {
+                                        match *key.clone() {
+                                            Value::Str(key) => Some(Value::Str(key)),
+                                            _ => None,
+                                        }
+                                    },
+                                    _ => None,
+                                }).collect();
+                                Some(Value::List(keys))
+                            },
+                            _ => None
+                        }
+                    }
+                    value => unimplemented!("Unsupported type '{:?}' for 'keys' operation", value)
+                },
                 Term::key(terms) => {
                     self.traverse_terms_inner(&mut context.clone(), cache, terms)
                 },
                 Term::string(text) => {
-
                     Some(Value::Str(text.to_string()))
                 },
                 Term::transpose => match context.identity() {
@@ -360,6 +386,7 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
         let spec: Option<&FileSpec> = self.store.map(|s| s.spec_by_export(name)).flatten()
             .or_else(|| self.store.map(|s| s.spec_by_export(context.current_file.as_ref().unwrap_or(&"".to_string()))).flatten());
 
+        self.enter_foreign(context, cache);
         if context.current_file.is_none() && spec.is_some() {
             let spec = spec.unwrap();
 
@@ -386,7 +413,6 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
             context.current_file = Some(spec.filename.to_string());
             context.identity = Some(Value::List(values));
         } else {
-            self.enter_foreign(context, cache);
             context.current_field = Some(name.to_string());
             context.identity = Some(self.value(context));
         }
@@ -438,7 +464,7 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
     }
 
     fn to_iterable(&self, context: &mut TraversalContext, cache: &mut SharedCache) -> Value {
-        self.enter_foreign(context, cache); // If field is a FK
+        self.enter_foreign(context, cache);
 
         let value = context.identity();
         let iterable = match value {
@@ -563,7 +589,7 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
     }
 
     fn enter_foreign(&self, context: &mut TraversalContext, cache: &mut SharedCache) {
-        let current_spec = context
+        let current_spec: Option<&FileSpec> = context
             .current_file.as_ref()
             .map(|file| self.store.unwrap().spec(&file))
             .flatten();
@@ -578,6 +604,9 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
 
         if current_field.is_some() && current_field.unwrap().is_foreign_key() {
             context.current_field = None;
+
+            let fk_name = &current_field.unwrap().file.as_ref().unwrap();
+            let foreign_spec = self.store.unwrap().spec(fk_name).unwrap();
 
             let value = context.identity();
             let value = match value {
@@ -606,7 +635,7 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
             });
 
             context.current_field = None;
-            context.current_file = Some(current_spec.unwrap().filename.clone());
+            context.current_file = Some(foreign_spec.filename.clone());
             context.identity = Some(result);
         }
     }

@@ -21,9 +21,9 @@ pub enum Value {
 impl ops::Add<Value> for Value {
     type Output = Value;
 
-    fn add(self, _rhs: Value) -> Value {
+    fn add(self, rhs: Value) -> Value {
         use Value::*;
-        match (self, _rhs) {
+        match (self, rhs) {
             (Empty, Empty) => Empty,
             (Str(lhs), Str(rhs)) => Str(format!("{}{}", lhs, rhs)),
             (U64(lhs), U64(rhs)) => U64(lhs + rhs),
@@ -44,12 +44,47 @@ impl ops::Add<Value> for Value {
                     Value::Empty => vec![],
                     _ => panic!("object contained unknown type"),
                 };
+
+                // strip out keys that should be overwritten
+                let lhs_content: Vec<Value> = lhs_content.into_iter().filter(|e| {
+                    let keys: Vec<_> = rhs_content.iter().filter_map(|x| match x {
+                        KeyValue(key, _) => Some(key),
+                        _ => None
+                    }).collect();
+
+                    match e {
+                        KeyValue(key, _) => !keys.contains(&key),
+                        _ => true
+                    }
+                }).collect();
+
                 Value::Object(Box::new(Value::List(
                     [&lhs_content[..], &rhs_content[..]].concat(),
                 )))
             }
             (lhs, rhs) => {
                 error!("Operation not supported: {:?} + {:?}", lhs, rhs);
+                process::exit(-1);
+            }
+        }
+    }
+}
+
+impl ops::Sub<Value> for Value {
+    type Output = Value;
+
+    fn sub(self, rhs: Value) -> Value {
+        use Value::*;
+        match (self, rhs) {
+            (Empty, Empty) => Empty,
+            (U64(lhs), U64(rhs)) => U64(lhs - rhs),
+            (I64(lhs), I64(rhs)) => I64(lhs - rhs),
+            (Byte(lhs), Byte(rhs)) => Byte(lhs - rhs),
+            (List(lhs), List(rhs)) => {
+                List(lhs.into_iter().filter(|e| !rhs.contains(e)).collect())
+            },
+            (lhs, rhs) => {
+                error!("Subtraction not supported: {:?} + {:?}", lhs, rhs);
                 process::exit(-1);
             }
         }

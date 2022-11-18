@@ -31,6 +31,8 @@ pub enum Term {
     transpose,
     identity,
     comma,
+    length,
+    keys,
     noop,
     _pipe,
     _equal,
@@ -323,6 +325,8 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
         }
         Rule::identity => Term::identity,
         Rule::comma => Term::comma,
+        Rule::length => Term::length,
+        Rule::keys => Term::keys,
         Rule::transpose => Term::transpose,
         Rule::array_construction => {
             let content = pair.into_inner();

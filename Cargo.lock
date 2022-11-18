@@ -494,9 +494,9 @@ dependencies = [
 
 [[package]]
 name = "poe_bundle"
-version = "0.1.4"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85b3b28c2a13a1eb694b0eb1e9b9d0afb3b2057e0b334a4558fe6588934cdb91"
+checksum = "c777a4c69995996d354b29510d46a52448d5f757b35d17d206d570c29e9be8ba"
 dependencies = [
  "byteorder",
  "cmake",
@@ -507,7 +507,7 @@ dependencies = [
 
 [[package]]
 name = "poe_query"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "apollo-parser",
  "byteorder",

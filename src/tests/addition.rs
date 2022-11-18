@@ -35,9 +35,8 @@ mod addition {
 
     #[test]
     fn objects() {
-        // BUG: does not overwrite value
         let result = process("{foo: 0, bar: 1} + {foo: 1, baz: 1}");
-        assert_eq!(result, vec![r#"{"foo":1,"bar":1,"baz":1}"#]);
+        assert_eq!(result, vec![r#"{"bar":1,"foo":1,"baz":1}"#]);
     }
 
 }
