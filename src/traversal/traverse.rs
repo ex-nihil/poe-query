@@ -2,16 +2,16 @@ use std::collections::HashMap;
 
 use log::*;
 
-use crate::{DatContainer, Term};
+use crate::{DatReader, Term};
 use crate::dat::file::DatFile;
-use crate::dat::reader::DatStoreImpl;
-use crate::dat::specification::FieldSpecImpl;
+use crate::dat::DatStoreImpl;
+use crate::dat::specification::{FieldSpecImpl, FileSpec};
 use crate::query::{Compare, Operation};
 
 use super::value::Value;
 
 pub struct StaticContext<'a> {
-    pub store: Option<&'a DatContainer<'a>>,
+    pub store: Option<&'a DatReader<'a>>,
 }
 
 /** Local context */
@@ -276,7 +276,7 @@ impl TermsProcessor for StaticContext<'_> {
                                 let spec = self.store.unwrap().spec_by_export(export).unwrap();
 
                                 Value::KeyValue(
-                                    Box::new(Value::Str(spec.export.to_string())),
+                                    Box::new(Value::Str(spec.filename.to_string())),
                                     Box::new(Value::List(vec![])),
                                 )
                             })
@@ -349,12 +349,15 @@ impl TermsProcessor for StaticContext<'_> {
 impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
     fn child(&self, context: &mut TraversalContext, cache: &mut SharedCache, name: &str) {
         debug!("entered {}", name);
-        let spec = self.store.map(|s| s.spec_by_export(name)).flatten();
+
+        let spec: Option<&FileSpec> = self.store.map(|s| s.spec_by_export(name)).flatten()
+            .or_else(|| self.store.map(|s| s.spec_by_export(context.current_file.as_ref().unwrap_or(&"".to_string()))).flatten());
+
         if context.current_file.is_none() && spec.is_some() {
             let spec = spec.unwrap();
 
             // generate initial values
-            let file = cache.files.entry(spec.filename.to_string()).or_insert_with(|| self.store.unwrap().file(&spec.filename).unwrap());
+            let file = cache.files.entry(spec.filename.to_string()).or_insert_with(|| self.store.unwrap().file_by_filename(&spec.filename).unwrap());
 
             let values: Vec<Value> = (0..file.rows_count)
                 .map(|i| {
@@ -527,7 +530,7 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
             Value::U64(i) => {
                 let current = context.current_file.as_ref().unwrap();
                 let spec = self.store.unwrap().spec(&current).unwrap();
-                let file = self.store.unwrap().file(&current).unwrap();
+                let file = self.store.unwrap().file_by_filename(&current).unwrap();
 
                 // TODO: extract to function
                 let kv_list: Vec<Value> = spec
@@ -590,7 +593,7 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
                 })
                 .collect();
 
-                let rows = self.rows_from(cache, &current_field.unwrap().file, ids.as_slice());
+                let rows = self.rows_from(cache, &current_field.unwrap().file.as_ref().unwrap(), ids.as_slice());
                 Some(rows)
             });
 
@@ -603,7 +606,7 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
     fn rows_from(&self, cache: &mut SharedCache, filepath: &str, indices: &[u64]) -> Value {
         let foreign_spec = self.store.unwrap().spec(filepath).unwrap();
 
-        let file = cache.files.entry(filepath.to_string()).or_insert_with(|| self.store.unwrap().file(filepath).unwrap());
+        let file = cache.files.entry(filepath.to_string()).or_insert_with(|| self.store.unwrap().file_by_filename(filepath).unwrap());
 
         let values: Vec<Value> = indices
             .iter()

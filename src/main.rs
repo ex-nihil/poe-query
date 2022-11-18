@@ -10,7 +10,7 @@ use log::*;
 use simplelog::*;
 use poe_bundle::BundleReader;
 
-use crate::dat::reader::DatContainer;
+use crate::dat::DatReader;
 use crate::query::Term;
 
 use crate::traversal::traverse::{SharedCache, StaticContext, TermsProcessor, TraversalContext};
@@ -32,6 +32,9 @@ struct Args {
 
     #[arg(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
+
+    #[arg(short, long, default_value_t = String::from("English"))]
+    language: String,
 
     query: String,
 }
@@ -65,7 +68,7 @@ fn main() {
 
     let bundles = BundleReader::from_install(path.as_path());
 
-    let container = DatContainer::from_install(&bundles, specs.as_path());
+    let container = DatReader::from_install(&arg.language, &bundles, specs.as_path());
     let navigator = StaticContext {
         store: Some(&container),
     };

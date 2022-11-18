@@ -1,7 +1,7 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::{query, StaticContext, TermsProcessor, Value};
+    use crate::tests::test_util::process;
 
     #[test]
     fn create_array_empty() {
@@ -119,19 +119,4 @@ mod tests {
         assert_eq!(result, vec!["2"]);
     }
 
-    fn process(input: &str) -> Vec<String> {
-        let terms = query::parse(input);
-
-        let value = StaticContext::default()
-            .process_terms(&terms);
-
-        match value {
-            Value::Iterator(items) => {
-                items.iter().map(|item| {
-                    serde_json::to_string(item).expect("seralized")
-                }).collect()
-            }
-            _ => vec![serde_json::to_string(&value).expect("serialized")]
-        }
-    }
 }

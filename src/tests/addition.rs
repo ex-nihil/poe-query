@@ -1,7 +1,8 @@
 
 #[cfg(test)]
 mod addition {
-    use crate::{query, StaticContext, TermsProcessor, Value};
+    use crate::tests::test_util::process;
+
     /**
     The operator + takes two filters, applies them both to the same input, and adds the results together. What "adding" means depends on the types involved:
 
@@ -39,19 +40,4 @@ mod addition {
         assert_eq!(result, vec![r#"{"foo":1,"bar":1,"baz":1}"#]);
     }
 
-    fn process(input: &str) -> Vec<String> {
-        let terms = query::parse(input);
-
-        let value = StaticContext::default()
-            .process_terms(&terms);
-
-        match value {
-            Value::Iterator(items) => {
-                items.iter().map(|item| {
-                    serde_json::to_string(item).expect("seralized")
-                }).collect()
-            }
-            _ => vec![serde_json::to_string(&value).expect("serialized")]
-        }
-    }
 }

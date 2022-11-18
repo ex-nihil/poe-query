@@ -9,8 +9,7 @@ use serde::Deserialize;
 #[derive(Debug, PartialEq, Deserialize, Clone)]
 pub struct FileSpec {
     pub filename: String,
-    pub fields: Vec<FieldSpec>,
-    pub export: String,
+    pub fields: Vec<FieldSpec>
 }
 
 #[derive(Debug, PartialEq, Deserialize, Clone)]
@@ -30,14 +29,14 @@ impl EnumSpec {
 pub struct FieldSpec {
     pub name: String,
     pub datatype: String,
-    pub file: String,
+    pub file: Option<String>,
     pub enum_name: Option<EnumSpec>,
     pub offset: u64,
 }
 
 impl fmt::Display for FieldSpec {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{} {}({})", self.file, self.name, self.datatype)
+        write!(f, "{}({})", self.name, self.datatype)
     }
 }
 
@@ -136,7 +135,8 @@ impl FileSpec {
                             let name = field.name().unwrap().text();
 
                             let mut is_list = false;
-                            let asd = match field.ty().unwrap() {
+
+                            let type_name = match field.ty().unwrap() {
                                 Type::NamedType(it) => {
                                     match it.syntax().text().to_string().as_str() {
                                         "i64" | "u64" => offset += 8,
@@ -155,7 +155,7 @@ impl FileSpec {
                                 node => unimplemented!("Unhandled node: {:?}", node),
                             };
 
-                            let key_file = match asd.as_str() {
+                            let key_file = match type_name.as_str() {
                                 "i32" | "bool" | "rid" | "string" | "f32" | "u32" => None,
                                 t => {
                                     Some(t.to_string())
@@ -169,10 +169,10 @@ impl FileSpec {
                                     "list|u32".to_string()
                                 }
                                 (true, None) => {
-                                    "list|".to_owned() + &asd
+                                    "list|".to_owned() + &type_name
                                 }
                                 (false, Some(_)) => "u32".to_string(),
-                                (false, None) => match asd.as_str() {
+                                (false, None) => match type_name.as_str() {
                                     "string" => "ref|string",
                                     "rid" => "u32",
                                     t => t
@@ -187,17 +187,17 @@ impl FileSpec {
                             fields.push(FieldSpec {
                                 name: name.to_string(),
                                 datatype: type_value.to_string(),
-                                file: key_file.as_ref().map(|file| format!("Data/{}.dat", file)).unwrap_or("".to_string()) ,
+                                file: key_file,
                                 enum_name: enum_spec.map(|x| x.clone()),
                                 offset: current_offset
                             });
                         }
 
-                        file_specs.insert(format!("Data/{}.dat", filename), FileSpec {
-                            filename: format!("Data/{}.dat", filename),
-                            fields,
-                            export: filename
-                        });
+                        let spec = FileSpec {
+                            filename,
+                            fields
+                        };
+                        file_specs.insert(spec.filename.clone(), spec);
                     }
                     Definition::EnumTypeDefinition(_) => {}
                     def => unimplemented!("Unhandled definition: {:?}", def),
@@ -227,7 +227,7 @@ pub trait FieldSpecImpl {
 
 impl FieldSpecImpl for FieldSpec {
     fn is_foreign_key(&self) -> bool {
-        !self.file.is_empty() && self.file != "~"
+        self.file.is_some()
     }
 }
 
