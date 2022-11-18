@@ -128,6 +128,11 @@ impl TermsProcessor for StaticContext<'_> {
                 let asd = context.identity.take().unwrap_or(Value::Empty);
                 asd
             }
+            Term::kv_by_name(key) => {
+                self.child(context, cache, key);
+                let asd = context.identity.take().unwrap_or(Value::Empty);
+                Value::KeyValue(Box::new(Value::Str(key.to_string())), Box::new(asd))
+            }
             Term::by_index(i) => {
                 self.index(context, *i);
                 context.identity.take().unwrap_or(Value::Empty)
@@ -293,7 +298,7 @@ impl TermsProcessor for StaticContext<'_> {
                         _ => Some(result),
                     }
                 },
-                Term::name(terms) => {
+                Term::key(terms) => {
                     self.traverse_terms_inner(&mut context.clone(), cache, terms)
                 },
                 Term::string(text) => {

@@ -102,6 +102,7 @@ There's an alias for the map/reduce operation above named `zip_to_obj` that can 
  - optional multithreading (HDD vs SSD)
  - tests!
  - darwin release targets
+ - offer to download latest spec if not found
 
  # known issues
    - codebase is a crime against humanity

@@ -55,11 +55,15 @@ bool_expression = _{ query+ ~ compare ~ query+ }
         greater_than_eq = { ">=" }
 
 field = { identifier }
-key = {  (quoted_string | identifier | "(" ~ (datatypes | filter)+ ~ ")")+ ~ ":" }
+kv_by_field = { identifier }
 
-named_query = { key ~ (!("," ~ &key) ~ query)+ }
-object_construct = { "{" ~ (named_query ~ operator?)* ~ "}" }
 array_construction = { "[" ~ query* ~ "]" }
+
+
+// OBJECT CONSTRUCTION
+object_construct = { "{" ~ ((key_value | kv_by_field) ~ comma?)* ~ "}" }
+key_value = { key ~ (!("," ~ &key) ~ query)+ }
+key = {  (quoted_string | identifier | "(" ~ (datatypes | filter)+ ~ ")")+ ~ ":" }
 
 optional = { "?" }
 

@@ -10,6 +10,7 @@ struct PluckParser;
 #[allow(non_camel_case_types)]
 pub enum Term {
     by_name(String),
+    kv_by_name(String),
     by_index(usize),
     by_index_reverse(usize),
     slice(usize, usize),
@@ -20,9 +21,8 @@ pub enum Term {
     calculate(Vec<Term>, Operation, Vec<Term>),
     iterator,
     _equal,
-    _pipe,
     string(String),
-    name(Vec<Term>),
+    key(Vec<Term>),
     set_variable(String),
     get_variable(String),
     unsigned_number(u64),
@@ -32,6 +32,7 @@ pub enum Term {
     transpose,
     identity,
     comma,
+    pipe,
     noop,
 }
 
@@ -112,7 +113,7 @@ fn build_ast(pair: pest::iterators::Pair<Rule>, dst: &mut Vec<Term>) {
                 Term::transpose, 
                 Term::map(vec![
                     Term::object(vec![
-                        Term::kv(Box::new(Term::name(vec![Term::by_index(0)])), vec![Term::by_index(1)])
+                        Term::kv(Box::new(Term::key(vec![Term::by_index(0)])), vec![Term::by_index(1)])
                     ])
                 ]),
                 Term::reduce(
@@ -165,12 +166,13 @@ fn build_ast(pair: pest::iterators::Pair<Rule>, dst: &mut Vec<Term>) {
             dst.push(Term::map(terms));
         }
         Rule::object_construct => {
-            let content = pair.into_inner();
+            let inner = pair.into_inner();
             let mut object_terms = Vec::new();
-            for pair in content {
+            for pair in inner {
                 match pair.as_rule() {
                     Rule::comma => object_terms.push(to_term(pair)),
-                    _ => {
+                    Rule::kv_by_field => object_terms.push(to_term(pair)),
+                    Rule::key_value => {
                         let mut content = pair.into_inner();
                         let mut kv_terms = Vec::new();
                         while let Some(next) = content.next() {
@@ -179,6 +181,7 @@ fn build_ast(pair: pest::iterators::Pair<Rule>, dst: &mut Vec<Term>) {
                         let key = kv_terms.first().unwrap();
                         object_terms.push(Term::kv(Box::new(key.clone()), kv_terms[1..].to_vec()));
                     }
+                    rule => unimplemented!("Unknown rule '{:?}' in object construction ", rule)
                 }
             }
             dst.push(Term::object(object_terms))
@@ -192,11 +195,16 @@ fn build_ast(pair: pest::iterators::Pair<Rule>, dst: &mut Vec<Term>) {
 fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
     match pair.as_rule() {
         Rule::pipe => {
+            //Term::pipe
             Term::noop
         },
         Rule::field => {
             let ident = pair.as_span().as_str().to_string();
             Term::by_name(ident.to_string())
+        }
+        Rule::kv_by_field => {
+            let ident = pair.as_span().as_str().to_string();
+            Term::kv_by_name(ident.to_string())
         }
         Rule::string => {
             let text = pair.as_span().as_str().to_string();
@@ -222,7 +230,7 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
             for next in inner {
                 build_ast(next, &mut terms);
             }
-            Term::name(terms)
+            Term::key(terms)
         }
         Rule::index => {
             let ident = pair.into_inner().next().unwrap().as_str();
