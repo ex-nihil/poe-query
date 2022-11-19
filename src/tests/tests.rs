@@ -4,37 +4,6 @@ mod tests {
     use crate::tests::test_util::process;
 
     #[test]
-    fn create_array_empty() {
-        // TODO: clashes with 'iterate'
-        let result = process("[]");
-        assert_eq!(result, vec!["[]"]);
-    }
-
-    #[test]
-    fn create_array() {
-        let result = process("[0, 1, 2]");
-        assert_eq!(result, vec!["[0,1,2]"]);
-    }
-
-    #[test]
-    fn create_array_one_element() {
-        let result = process("[0]");
-        assert_eq!(result, vec!["[0]"]);
-    }
-
-    #[test]
-    fn array_length() {
-        let result = process("[0,1,2,3] | length");
-        assert_eq!(result, vec!["4"]);
-    }
-
-    #[test]
-    fn object_length() {
-        let result = process("{foo: 1, bar: 2} | length");
-        assert_eq!(result, vec!["2"]);
-    }
-
-    #[test]
     fn string_length() {
         // unicode characters, not bytes
         let result = process("\"abcåäö\" | length");
@@ -42,27 +11,9 @@ mod tests {
     }
 
     #[test]
-    fn object_keys() {
-        let result = process(r#"{"abc": 1, "abcd": 2, "Foo": 3} | keys"#);
-        assert_eq!(result, vec![r#"["abc","abcd","Foo"]"#]);
-    }
-
-    #[test]
     fn multiple_queries() {
         let result = process(r#"[1,2,3] | .[1], .[0]"#);
         assert_eq!(result, vec!["2", "1"]);
-    }
-
-    #[test]
-    fn conditionals() {
-        let result = process(r#"2 | if . == 0 then "zero" elif . == 1 then "one" else "many" end"#);
-        assert_eq!(result, vec![r#""many""#]);
-    }
-
-    #[test]
-    fn string_interpolation() {
-        let result = process(r#"42 | "The input was \(.), which is one less than \(.+1)""#);
-        assert_eq!(result, vec![r#"""The input was 42, which is one less than 43"""#]);
     }
 
     #[test]
@@ -78,7 +29,7 @@ mod tests {
     }
 
     #[test]
-    fn index_slice() {
+    fn slice() {
         let result = process("[5, 6, 7, 8][1:3]");
         assert_eq!(result[0], "[6,7]");
     }
@@ -88,6 +39,9 @@ mod tests {
         // this is not supported by jq, drop if it conflicts with something else
         let result = process(r#""abc" | .[1]"#);
         assert_eq!(result[0], r#""b""#);
+
+        let result = process(r#""åäö" | .[1]"#);
+        assert_eq!(result[0], r#""ä""#);
     }
 
     #[test]

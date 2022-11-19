@@ -2,6 +2,8 @@ mod addition;
 mod subtraction;
 mod tests;
 mod object;
+mod arrays;
+mod not_implemented;
 
 
 #[cfg(test)]

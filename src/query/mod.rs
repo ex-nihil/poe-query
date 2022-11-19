@@ -76,7 +76,7 @@ pub fn parse(source: &str) -> Vec<Term> {
     return output;
 }
 
-// TODO: this is getting very unwieldy, refactor to something more ergonomic
+// TODO: this is getting very unwieldy, refactor to something more ergonomic?
 fn build_ast(pair: pest::iterators::Pair<Rule>, dst: &mut Vec<Term>) {
     trace!("{:?}", pair.as_rule());
     match pair.as_rule() {
