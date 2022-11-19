@@ -1,6 +1,8 @@
 # Path of Exile Query
 
-Performs [jq](https://stedolan.github.io/jq/) like queries directly against a Path of Exile GGPK file.
+[![latest release](https://img.shields.io/github/v/release/ex-nihil/poe-query?label=latest%20release "latest release")](https://github.com/ex-nihil/poe-query/releases/latest)
+
+Perform queries directly against a Path of Exile installation with a [jq](https://stedolan.github.io/jq/) like query format.
 
 The program depends on specifications from this repository [github.com/poe-tool-dev/dat-schema](https://github.com/poe-tool-dev/dat-schema/tree/main/dat-schema).  
 Releases are bundled with the latest at the time the release was made, but you might need to update it if there has not been a release for some time.  
@@ -96,7 +98,7 @@ $ poe_query '.Mods[0] | [.SpawnWeight_TagsKeys[].Id, .SpawnWeight_Values] | tran
 ```
 There's an alias for the map/reduce operation above named `zip_to_obj` that can be used instead.
 
-# TODOs
+# wishlist (TODO)
  - translations
  - reduce amount of copying of data
  - optional multithreading (HDD vs SSD)
@@ -108,4 +110,4 @@ There's an alias for the map/reduce operation above named `zip_to_obj` that can 
    - `{foo: 1, bar: 2} | .foo, .bar` returns `[1,null]` instead of `[1,2]`
 
 The goal is not to be 100% like jq.  
-Feature requests it would be helpful if you can create an example in [jqplay](https://jqplay.org/).
+But if you have something you would want implemented a [jqplay](https://jqplay.org/) example would be helpful.

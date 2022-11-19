@@ -48,7 +48,7 @@ fn main() {
             0 => LevelFilter::Warn,
             1 => LevelFilter::Info,
             2 => LevelFilter::Debug,
-            3 | _ => LevelFilter::Trace,
+            _ => LevelFilter::Trace,
         },
         Config::default(),
         TerminalMode::Stderr,
@@ -96,7 +96,7 @@ fn main() {
     let serialize_ts = now.elapsed().as_millis();
 
     info!("setup spent: {}ms", read_index_ms);
-    info!("query spent: {}ms", query_ms);
+    info!("transform spent: {}ms", query_ms);
     info!("serialize spent: {}ms", serialize_ts);
 }
 

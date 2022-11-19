@@ -46,7 +46,7 @@ impl DatFile {
         }
         let mut c = Cursor::new(&bytes);
         let rows_count = c.read_u32::<LittleEndian>().unwrap();
-        if rows_count <= 0 {
+        if rows_count == 0 {
             warn!("DAT file is empty");
             return EMPTY_DAT;
         }
@@ -105,7 +105,7 @@ impl DatFile {
         let mut c = Cursor::new(&self.bytes[exact_offset..]);
 
 
-        let mut parts = field.datatype.split("|");
+        let mut parts = field.datatype.split('|');
         let prefix = parts.next();
         let result = if let Some(enum_spec) = &field.enum_name {
             match c.u32() {
@@ -151,19 +151,19 @@ impl DatFile {
 }
 
 trait ReadBytesToValue {
-    fn read_value<'a>(&mut self, tag: &str) -> Value;
-    fn bool<'a>(&mut self) -> Value;
-    fn u8<'a>(&mut self) -> Value;
-    fn u32<'a>(&mut self) -> Value;
-    fn i32<'a>(&mut self) -> Value;
-    fn u64<'a>(&mut self) -> Value;
-    fn utf16<'a>(&mut self) -> String;
+    fn read_value(&mut self, tag: &str) -> Value;
+    fn bool(&mut self) -> Value;
+    fn u8(&mut self) -> Value;
+    fn u32(&mut self) -> Value;
+    fn i32(&mut self) -> Value;
+    fn u64(&mut self) -> Value;
+    fn utf16(&mut self) -> String;
 }
 
 impl ReadBytesToValue for Cursor<&[u8]> {
 
-    fn read_value<'a>(&mut self, tag: &str) -> Value {
-        return match tag {
+    fn read_value(&mut self, tag: &str) -> Value {
+        match tag {
             "bool" => self.bool(),
             "u8"   => self.u8(),
             "u32"  => self.u32(),
@@ -172,11 +172,11 @@ impl ReadBytesToValue for Cursor<&[u8]> {
             "u64"  => self.u64(),
             "string" => Value::Str(self.utf16()),
             value => panic!("Unsupported type in specification. {}", value),
-        };
+        }
     }
 
-    fn bool<'a>(&mut self) -> Value {
-        return match self.read_u8() {
+    fn bool(&mut self) -> Value {
+        match self.read_u8() {
             Ok(0) => Value::Bool(false),
             Ok(1) => Value::Bool(true),
             Ok(value) => {
@@ -184,43 +184,43 @@ impl ReadBytesToValue for Cursor<&[u8]> {
                 Value::Bool(true)
             },
             _ => panic!("Unable to read bool"),
-        };
+        }
     }
 
-    fn u8<'a>(&mut self) -> Value {
-        return match self.read_u8() {
+    fn u8(&mut self) -> Value {
+        match self.read_u8() {
             Ok(value) => Value::Byte(value),
             Err(_)=> panic!("Unable to read u8"),
-        };
+        }
     }
 
-    fn u32<'a>(&mut self) -> Value {
-        return match self.read_u32::<LittleEndian>() {
+    fn u32(&mut self) -> Value {
+        match self.read_u32::<LittleEndian>() {
             Ok(value) => u32_to_enum(value),
             Err(_) => panic!("Unable to read u32"),
-        };
+        }
     }
 
-    fn i32<'a>(&mut self) -> Value {
-        return match self.read_i32::<LittleEndian>() {
+    fn i32(&mut self) -> Value {
+        match self.read_i32::<LittleEndian>() {
             Ok(value) => i32_to_enum(value),
             Err(_) => panic!("Unable to read u32"),
-        };
+        }
     }
 
-    fn u64<'a>(&mut self) -> Value {
-        return match self.read_u64::<LittleEndian>() {
+    fn u64(&mut self) -> Value {
+        match self.read_u64::<LittleEndian>() {
             Ok(value) => u64_to_enum(value),
             Err(_) => panic!("Unable to read u64"),
-        };
+        }
     }
 
-    fn utf16<'a>(&mut self) -> String {
+    fn utf16(&mut self) -> String {
         let raw = (0..)
             .map(|_| self.read_u16::<LittleEndian>().unwrap())
             .take_while(|&x| x != 0u16)
             .collect::<Vec<u16>>();
-        return String::from_utf16(&raw).expect("Unable to decode as UTF-16 String");
+        String::from_utf16(&raw).expect("Unable to decode as UTF-16 String")
     }
 }
 
@@ -228,17 +228,17 @@ fn u64_to_enum(value: u64) -> Value {
     if value == 0xFEFEFEFEFEFEFEFE {
         return Value::Empty;
     }
-    return Value::U64(value);
+    Value::U64(value)
 }
 
 fn u32_to_enum(value: u32) -> Value {
     if value == 0xFEFEFEFE {
         return Value::Empty;
     }
-    return Value::U64(value as u64);
+    Value::U64(value as u64)
 }
 
 fn i32_to_enum(value: i32) -> Value {
     // TODO: check for empty signal
-    return Value::I64(value as i64);
+    Value::I64(value as i64)
 }

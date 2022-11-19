@@ -4,8 +4,9 @@ use std::{fmt, ops};
 use std::fmt::Formatter;
 use std::ops::Deref;
 use std::process;
+use crate::Value::KeyValue;
 
-#[derive(Debug, Clone, PartialOrd, PartialEq)]
+#[derive(Debug, Clone, PartialOrd, PartialEq, Eq)]
 pub enum Value {
     Str(String),
     Byte(u8),
@@ -65,13 +66,10 @@ impl ops::Add<Value> for Value {
 
                 // strip out keys that should be overwritten
                 let lhs_content: Vec<Value> = lhs_content.into_iter().filter(|e| {
-                    let keys: Vec<_> = rhs_content.iter().filter_map(|x| match x {
-                        KeyValue(key, _) => Some(key),
-                        _ => None
-                    }).collect();
-
                     match e {
-                        KeyValue(key, _) => !keys.contains(&key),
+                        KeyValue(key, _) => {
+                            !rhs_content.iter().filter_map(|x| x.key()).any(|x| x == key.as_ref())
+                        },
                         _ => true
                     }
                 }).collect();
@@ -84,6 +82,15 @@ impl ops::Add<Value> for Value {
                 error!("Operation not supported: {} + {}", lhs, rhs);
                 process::exit(-1);
             }
+        }
+    }
+}
+
+impl Value {
+    fn key(&self) -> Option<&Value> {
+        match self {
+            KeyValue(key, _) => Some(key),
+            _ => None
         }
     }
 }
@@ -131,7 +138,7 @@ impl Serialize for Value {
                 }
                 Value::KeyValue(k, v) => {
                     let mut map = serializer.serialize_map(Some(1))?;
-                    map.serialize_entry(&*k, &*v)?;
+                    map.serialize_entry(k, v)?;
                     map.end()
                 }
                 Value::Empty => serializer.serialize_map(Some(0))?.end(),

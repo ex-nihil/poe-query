@@ -6,7 +6,7 @@ use log::{debug, error, trace};
 #[grammar = "query/grammar.pest"]
 struct PluckParser;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[allow(non_camel_case_types)]
 pub enum Term {
     by_name(String),
@@ -38,7 +38,7 @@ pub enum Term {
     _equal,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[allow(non_camel_case_types)]
 pub enum Compare {
     equals,
@@ -49,7 +49,7 @@ pub enum Compare {
     greater_than_eq,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 #[allow(non_camel_case_types)]
 pub enum Operation {
     add,
@@ -73,7 +73,7 @@ pub fn parse(source: &str) -> Vec<Term> {
         build_ast(pair, &mut output);
     }
     debug!("Query Terms: {:?}", output);
-    return output;
+    output
 }
 
 // TODO: this is getting very unwieldy, refactor to something more ergonomic?
@@ -81,11 +81,10 @@ fn build_ast(pair: pest::iterators::Pair<Rule>, dst: &mut Vec<Term>) {
     trace!("{:?}", pair.as_rule());
     match pair.as_rule() {
         Rule::multiple_terms => {
-            let mut inner = pair.into_inner();
-            while let Some(inner_term) = inner.next() {
+            let inner = pair.into_inner();
+            for inner_term in inner {
                 build_ast(inner_term, dst);
             }
-
         }
         Rule::calculation => {
             let inner = pair.into_inner();
@@ -183,9 +182,9 @@ fn build_ast(pair: pest::iterators::Pair<Rule>, dst: &mut Vec<Term>) {
                     Rule::comma => object_terms.push(to_term(pair)),
                     Rule::kv_by_field => object_terms.push(to_term(pair)),
                     Rule::key_value => {
-                        let mut content = pair.into_inner();
+                        let content = pair.into_inner();
                         let mut kv_terms = Vec::new();
-                        while let Some(next) = content.next() {
+                        for next in content {
                             build_ast(next, &mut kv_terms);
                         }
                         let key = kv_terms.first().unwrap();
@@ -211,11 +210,11 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
         },
         Rule::field => {
             let ident = pair.as_span().as_str().to_string();
-            Term::by_name(ident.to_string())
+            Term::by_name(ident)
         }
         Rule::kv_by_field => {
             let ident = pair.as_span().as_str().to_string();
-            Term::kv_by_name(ident.to_string())
+            Term::kv_by_name(ident)
         }
         Rule::string => {
             let text = pair.as_span().as_str().to_string();
@@ -310,7 +309,7 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
         }
         Rule::slice => {
             let mut inner = pair.into_inner();
-            let mut from = 0 as usize;
+            let mut from = 0_usize;
             let mut to = usize::MAX;
             if let Some(first) = inner.next() {
                 match first.as_rule() {

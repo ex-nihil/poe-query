@@ -1,6 +1,6 @@
 mod addition;
 mod subtraction;
-mod tests;
+mod misc;
 mod object;
 mod arrays;
 mod not_implemented;

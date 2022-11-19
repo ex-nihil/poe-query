@@ -10,12 +10,13 @@ use crate::query::{Compare, Operation};
 
 use super::value::Value;
 
+#[derive(Default)]
 pub struct StaticContext<'a> {
     pub store: Option<&'a DatReader<'a>>,
 }
 
 /** Local context */
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TraversalContext {
     pub current_field: Option<String>,
     pub current_file: Option<String>,
@@ -36,38 +37,11 @@ impl TraversalContext {
     }
 }
 
-impl Default for TraversalContext {
-    fn default() -> Self {
-        Self {
-            current_field: None,
-            current_file: None,
-            identity: None,
-        }
-    }
-}
-
-impl Default for StaticContext<'_> {
-    fn default() -> Self {
-        Self {
-            store: None
-        }
-    }
-}
-
 /** Shared cache */
+#[derive(Default)]
 pub struct SharedCache {
     pub variables: HashMap<String, Value>,
     pub files: HashMap<String, DatFile>,
-}
-
-
-impl Default for SharedCache {
-    fn default() -> Self {
-        Self {
-            variables: Default::default(),
-            files: Default::default()
-        }
-    }
 }
 
 pub trait TraversalContextImpl<'a> {
@@ -98,11 +72,8 @@ impl TermsProcessor for StaticContext<'_> {
     fn process(&self, context: &mut TraversalContext, cache: &mut SharedCache, parsed_terms: &[Term]) -> Value {
         let values: Vec<Value> = if parsed_terms.contains(&Term::comma) {
             parsed_terms
-                .split(|term| match term {
-                    Term::comma => true,
-                    _ => false,
-                })
-                .filter_map(|terms| self.traverse_terms_inner(&mut context.clone(), cache, &terms))
+                .split(|term| matches!(term, Term::comma))
+                .filter_map(|terms| self.traverse_terms_inner(&mut context.clone(), cache, terms))
                 .collect()
         } else {
             vec![self
@@ -112,12 +83,10 @@ impl TermsProcessor for StaticContext<'_> {
 
 
 
-        context.identity = if values.len() > 1 {
-            Some(Value::List(values))
-        } else if values.len() == 1 {
-            values.into_iter().nth(0)
-        } else {
-            None
+        context.identity = match values.len() {
+            0  => None,
+            1  => values.into_iter().next(),
+            _ => Some(Value::List(values))
         };
 
         context.identity()
@@ -232,7 +201,7 @@ impl TermsProcessor for StaticContext<'_> {
                     let mut reduce_context = context.clone_value(initial);
 
                     let result = reduce(value, &mut |acc, v| {
-                        cache.variables.insert(variable.to_string(), v.clone());
+                        cache.variables.insert(variable.to_string(), v);
                         reduce_context.identity = Some(acc);
                         self.process(&mut reduce_context, cache, terms)
                     });
@@ -257,7 +226,7 @@ impl TermsProcessor for StaticContext<'_> {
                     }
                 },
                 Term::kv(key, value_terms) => {
-                    let key = self.process(&mut context.clone(), cache, &vec![*key.clone()]);
+                    let key = self.process(&mut context.clone(), cache, &[*key.clone()]);
                     let result = self.process(&mut context.clone(), cache, &value_terms.to_vec());
                     trace!("Term::kv result: {:?} {:?}", key, result);
                     match key {
@@ -343,10 +312,7 @@ impl TermsProcessor for StaticContext<'_> {
 
                         let mut lists = Vec::new();
                         for value in values {
-                            match value {
-                                Value::List(v) => lists.push(v),
-                                _ => {},
-                            }
+                            if let Value::List(v) = value { lists.push(v) }
                         }
 
                         let max = lists
@@ -387,13 +353,11 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
     fn child(&self, context: &mut TraversalContext, cache: &mut SharedCache, name: &str) {
         debug!("entered {}", name);
 
-        let spec: Option<&FileSpec> = self.store.map(|s| s.spec_by_export(name)).flatten()
-            .or_else(|| self.store.map(|s| s.spec_by_export(context.current_file.as_ref().unwrap_or(&"".to_string()))).flatten());
+        let spec: Option<&FileSpec> = self.store.and_then(|s| s.spec_by_export(name))
+            .or_else(|| self.store.and_then(|s| s.spec_by_export(context.current_file.as_ref().unwrap_or(&"".to_string()))));
 
         self.enter_foreign(context, cache);
-        if context.current_file.is_none() && spec.is_some() {
-            let spec = spec.unwrap();
-
+        if let (Some(spec), None)  = (spec, &context.current_file) {
             // generate initial values
             let file = cache.files.entry(spec.filename.to_string()).or_insert_with(|| self.store.unwrap().file_by_filename(&spec.filename).unwrap());
 
@@ -405,7 +369,7 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
                         .map(|field| {
                             Value::KeyValue(
                                 Box::new(Value::Str(field.name.clone())),
-                                Box::new(file.read_field(i as u64, &field)),
+                                Box::new(file.read_field(i as u64, field)),
                             )
                         })
                         .collect();
@@ -471,7 +435,7 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
         self.enter_foreign(context, cache);
 
         let value = context.identity();
-        let iterable = match value {
+        match value {
             Value::List(list) => Value::Iterator(list),
             Value::Iterator(list) => Value::Iterator(list),
             Value::Object(content) => {
@@ -486,12 +450,11 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
                 "unable to iterate, should i support this? {:?}",
                 obj
             ),
-        };
-        iterable
+        }
     }
 
     fn value(&self, context: &mut TraversalContext) -> Value {
-        if context.identity == None {
+        if context.identity.is_none() {
             return Value::Empty;
         }
 
@@ -502,17 +465,14 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
                     Value::List(list) => {
                         let mut values = Vec::new();
                         for field in list {
-                            match field {
-                                Value::KeyValue(key, value) => {
-                                    if *key == Value::Str(context.current_field.clone().unwrap()) {
-                                        values.push(*value);
-                                    }
-                                },
-                                _ => {}
+                            if let Value::KeyValue(key, value) = field {
+                                if *key == Value::Str(context.current_field.clone().unwrap()) {
+                                    values.push(*value);
+                                }
                             }
                         }
 
-                        values.into_iter().nth(0).unwrap_or(Value::Empty)
+                        values.into_iter().next().unwrap_or(Value::Empty)
                     }
                     Value::KeyValue(key, value) => {
                         if *key == Value::Str(context.current_field.clone().unwrap()) {
@@ -567,8 +527,8 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
             },
             Value::U64(i) => {
                 let current = context.current_file.as_ref().unwrap();
-                let spec = self.store.unwrap().spec(&current).unwrap();
-                let file = self.store.unwrap().file_by_filename(&current).unwrap();
+                let spec = self.store.unwrap().spec(current).unwrap();
+                let file = self.store.unwrap().file_by_filename(current).unwrap();
 
                 // TODO: extract to function
                 let kv_list: Vec<Value> = spec
@@ -577,14 +537,14 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
                     .map(move |field| {
                         Value::KeyValue(
                             Box::new(Value::Str(field.name.clone())),
-                            Box::new(file.read_field(i, &field)),
+                            Box::new(file.read_field(i, field)),
                         )
                     })
                     .collect();
 
                 Value::Object(Box::new(Value::List(kv_list)))
             },
-            _ => return Value::Empty,
+            _ => Value::Empty,
         }
     }
 
@@ -595,21 +555,19 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
     fn enter_foreign(&self, context: &mut TraversalContext, cache: &mut SharedCache) {
         let current_spec: Option<&FileSpec> = context
             .current_file.as_ref()
-            .map(|file| self.store.unwrap().spec(&file))
-            .flatten();
+            .and_then(|file| self.store.unwrap().spec(file));
         let current_field = current_spec
-            .map(|spec| {
+            .and_then(|spec| {
                 spec.fields.iter().find(|&field| {
                     context.current_field.is_some()
                         && context.current_field.clone().unwrap() == field.name
                 })
-            })
-            .flatten();
+            });
 
-        if current_field.is_some() && current_field.unwrap().is_foreign_key() {
+        if let Some(current_field) = current_field.filter(|x| x.is_foreign_key()) {
             context.current_field = None;
 
-            let fk_name = &current_field.unwrap().file.as_ref().unwrap();
+            let fk_name = &current_field.file.as_ref().unwrap();
             let foreign_spec = self.store.unwrap().spec(fk_name).unwrap();
 
             let value = context.identity();
@@ -626,15 +584,15 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
                     Value::Empty => vec![],
                     item => panic!("Not a valid id for foreign key: {:?}", item),
                 }
-                .iter()
-                .filter_map(|v| match v {
-                    Value::U64(i) => Some(*i),
-                    Value::List(_) => None,
-                    _ => panic!("value {:?}", v),
-                })
-                .collect();
+                    .iter()
+                    .filter_map(|v| match v {
+                        Value::U64(i) => Some(*i),
+                        Value::List(_) => None,
+                        _ => panic!("value {:?}", v),
+                    })
+                    .collect();
 
-                let rows = self.rows_from(cache, &current_field.unwrap().file.as_ref().unwrap(), ids.as_slice());
+                let rows = self.rows_from(cache, current_field.file.as_ref().unwrap(), ids.as_slice());
                 Some(rows)
             });
 
@@ -658,7 +616,7 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
                     .map(|field| {
                         Value::KeyValue(
                             Box::new(Value::Str(field.name.clone())),
-                            Box::new(file.read_field(*i, &field)),
+                            Box::new(file.read_field(*i, field)),
                         )
                     })
                     .collect();
@@ -669,7 +627,7 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
         if values.len() > 1 {
             Value::List(values)
         } else {
-            values.into_iter().nth(0).unwrap_or(Value::Empty)
+            values.into_iter().next().unwrap_or(Value::Empty)
         }
     }
 }
@@ -683,9 +641,8 @@ where
         Value::Iterator(elements) => {
             let mut list = Vec::new();
             for e in elements {
-                match action(e) {
-                    Some(value) => list.push(value),
-                    _ => {}
+                if let Some(v) = action(e) {
+                    list.push(v);
                 }
             }
             Value::List(list)

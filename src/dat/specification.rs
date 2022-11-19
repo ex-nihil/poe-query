@@ -6,13 +6,13 @@ use std::path::Path;
 use apollo_parser::ast::AstNode;
 use serde::Deserialize;
 
-#[derive(Debug, PartialEq, Deserialize, Clone)]
+#[derive(Debug, PartialEq, Eq, Deserialize, Clone)]
 pub struct FileSpec {
     pub filename: String,
     pub fields: Vec<FieldSpec>
 }
 
-#[derive(Debug, PartialEq, Deserialize, Clone)]
+#[derive(Debug, PartialEq, Eq, Deserialize, Clone)]
 pub struct EnumSpec {
     name: String,
     first_index: usize,
@@ -25,7 +25,7 @@ impl EnumSpec {
     }
 }
 
-#[derive(Debug, PartialEq, Deserialize, Clone)]
+#[derive(Debug, PartialEq, Eq, Deserialize, Clone)]
 pub struct FieldSpec {
     pub name: String,
     pub datatype: String,
@@ -68,12 +68,9 @@ impl FileSpec {
 
                         let mut index = 0;
                         for directive in obj.directives().unwrap().directives() {
-                            match directive.name().unwrap().text().as_str() {
-                                "indexing" => {
-                                    let first = directive.arguments().unwrap().arguments().find(|x| x.name().unwrap().text() == "first").unwrap().value().unwrap().syntax().text().to_string();
-                                    index = first.parse::<usize>().unwrap();
-                                }
-                                _ => {}
+                            if directive.name().unwrap().text().as_str() == "indexing" {
+                                let first = directive.arguments().unwrap().arguments().find(|x| x.name().unwrap().text() == "first").unwrap().value().unwrap().syntax().text().to_string();
+                                index = first.parse::<usize>().unwrap();
                             }
                         }
                         let mut values = Vec::new();
@@ -93,7 +90,7 @@ impl FileSpec {
                 }
             }
         });
-        return enum_specs;
+        enum_specs
     }
 
     pub fn read_all_specs(path: &Path, enum_specs: &HashMap<String, EnumSpec>) -> HashMap<String, FileSpec> {
@@ -154,7 +151,7 @@ impl FileSpec {
                                 }
                             };
 
-                            let enum_spec: Option<&EnumSpec> = key_file.as_ref().map(|x| enum_specs.get(x)).flatten();
+                            let enum_spec: Option<&EnumSpec> = key_file.as_ref().and_then(|x| enum_specs.get(x));
 
                             let mut type_value = match (is_list, &key_file) {
                                 (true, Some(_)) => {
@@ -180,7 +177,7 @@ impl FileSpec {
                                 name: name.to_string(),
                                 datatype: type_value.to_string(),
                                 file: key_file,
-                                enum_name: enum_spec.map(|x| x.clone()),
+                                enum_name: enum_spec.cloned(),
                                 offset: current_offset
                             });
                         }
@@ -196,11 +193,11 @@ impl FileSpec {
                 }
             }
         });
-        return file_specs;
+        file_specs
     }
 
     pub fn field_size(field: &FieldSpec) -> u64 {
-        let datatype = field.datatype.split("|").next().unwrap();
+        let datatype = field.datatype.split('|').next().unwrap();
         match datatype {
             "u64" | "list" => 8,
             "bool" | "u8" => 1,
