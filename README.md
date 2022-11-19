@@ -100,14 +100,12 @@ There's an alias for the map/reduce operation above named `zip_to_obj` that can 
  - translations
  - reduce amount of copying of data
  - optional multithreading (HDD vs SSD)
- - tests!
  - darwin release targets
  - offer to download latest spec if not found
 
  # known issues
    - codebase is a crime against humanity
-   - .Field + .Field
-   - object construction after slice
+   - `{foo: 1, bar: 2} | .foo, .bar` returns `[1,null]` instead of `[1,2]`
 
 The goal is not to be 100% like jq.  
 Feature requests it would be helpful if you can create an example in [jqplay](https://jqplay.org/).

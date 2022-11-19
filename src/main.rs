@@ -23,7 +23,7 @@ mod tests;
 
 #[derive(clap::Parser)]
 #[command(name = "PoE Query")]
-#[command(author = "Daniel D. <daniel@timeloop.se>")]
+#[command(author = "Daniel Dimovski <daniel@timeloop.se>")]
 #[command(version = env ! ("CARGO_PKG_VERSION"))]
 #[command(about = "Query and transform data from Path of Exile", long_about = None)]
 struct Args {

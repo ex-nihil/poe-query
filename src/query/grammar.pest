@@ -84,8 +84,8 @@ operator = _{ pipe | comma }
 
 expr = _{ calculation | multiple_terms | term }
 
-calculation = { term ~ (operation ~ term)+ }
-multiple_terms = { term ~ (operator ~ term)+ }
+calculation = { term ~ (operation ~ expr)+ }
+multiple_terms = { term ~ (operator ~ expr)+ }
 
 term = _{ ((identity | construct | "(" ~ expr ~ ")") | datatypes | filter | functions) ~ (filter | functions)* } // precedence
 
