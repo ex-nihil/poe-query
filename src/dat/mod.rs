@@ -52,7 +52,6 @@ impl<'a> DatStoreImpl<'a> for DatReader<'a> {
     fn file(&self, spec: &FileSpec) -> Option<DatFile> {
         let path = self.get_filepath(&spec.filename);
         info!("Unpacking {}", path);
-        //let Some(spec) = self.spec(&path) else { return None };
         let Ok(bytes) = self.bundle_reader.bytes(&path) else { return None };
 
         let file = DatFile::from_bytes(path, bytes);

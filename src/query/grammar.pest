@@ -59,6 +59,7 @@ bool_expression = _{ query+ ~ compare ~ query+ }
 field = { identifier }
 kv_by_field = { identifier }
 
+construct = _{ array_construction | object_construct }
 array_construction = { "[" ~ query* ~ "]" }
 
 
@@ -71,15 +72,21 @@ optional = { "?" }
 
 functions = _ { map | reduce | transpose | length | keys | zip_to_obj }
 filter = _{ select | functions | assign_variable | variable | iterator | field | index | slice | identity }
-query = _{ operator? ~ (datatypes | filter | array_construction | object_construct) }
+query = _{ (operator ~ query_construct_first) | (!operator ~ query_construct_last) }
+
+query_construct_first = _{ construct | datatypes | filter }
+query_construct_last = _{ datatypes | filter | construct }
 
 pipe = { "|" }
 comma = { "," }
 
 operator = _{ pipe | comma }
 
+expr = _{ calculation | multiple_terms | term }
 
-expr = { term ~ (operation ~ term)* }
-term = _{ query | "(" ~ expr ~ ")" } // precedence
+calculation = { term ~ (operation ~ term)+ }
+multiple_terms = { term ~ (operator ~ term)+ }
 
-program = _{ SOI ~ expr+}
+term = _{ ((identity | construct | "(" ~ expr ~ ")") | datatypes | filter | functions) ~ (filter | functions)* } // precedence
+
+program = _{ SOI ~ expr* ~ EOI }

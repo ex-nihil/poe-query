@@ -52,6 +52,7 @@ fn main() {
         },
         Config::default(),
         TerminalMode::Stderr,
+        ColorChoice::Never,
     )]).unwrap_or_default();
     debug!("Version {:?}", env!("CARGO_PKG_VERSION"));
 

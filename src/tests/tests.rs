@@ -17,6 +17,12 @@ mod tests {
     }
 
     #[test]
+    fn create_array_one_element() {
+        let result = process("[0]");
+        assert_eq!(result, vec!["[0]"]);
+    }
+
+    #[test]
     fn array_length() {
         let result = process("[0,1,2,3] | length");
         assert_eq!(result, vec!["4"]);

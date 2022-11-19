@@ -269,6 +269,9 @@ impl TermsProcessor for StaticContext<'_> {
                 },
                 Term::identity => {
                     if context.current_file.is_none() && context.identity.is_none() {
+                        if self.store.is_none() {
+                            return Some(Value::Empty);
+                        }
                         let exports: Vec<Value> = self
                             .store.unwrap()
                             .exports()
@@ -291,7 +294,8 @@ impl TermsProcessor for StaticContext<'_> {
                     let result = self.process(&mut context.clone(), cache, &arr_terms.to_vec());
                     match result {
                         Value::Empty => Some(Value::List(Vec::with_capacity(0))),
-                        _ => Some(result),
+                        Value::List(_) => Some(result),
+                        one_element => Some(Value::List(vec![one_element])),
                     }
                 },
                 Term::length => match context.identity() {

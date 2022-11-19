@@ -1,6 +1,6 @@
 use pest::Parser;
 use std::fmt::Debug;
-use log::debug;
+use log::{debug, error, trace};
 
 #[derive(Parser)]
 #[grammar = "query/grammar.pest"]
@@ -63,8 +63,8 @@ pub fn parse(source: &str) -> Vec<Term> {
     let pairs = match result {
         Ok(pairs) => pairs,
         Err(err) => {
-            println!("{}", err);
-            panic!("parse error");
+            error!("Fail parsing grammar. {}", err);
+            return vec![];
         }
     };
 
@@ -78,8 +78,16 @@ pub fn parse(source: &str) -> Vec<Term> {
 
 // TODO: this is getting very unwieldy, refactor to something more ergonomic
 fn build_ast(pair: pest::iterators::Pair<Rule>, dst: &mut Vec<Term>) {
+    trace!("{:?}", pair.as_rule());
     match pair.as_rule() {
-        Rule::expr => {
+        Rule::multiple_terms => {
+            let mut inner = pair.into_inner();
+            while let Some(inner_term) = inner.next() {
+                build_ast(inner_term, dst);
+            }
+
+        }
+        Rule::calculation => {
             let inner = pair.into_inner();
             let mut lhs = Vec::new();
             let mut rhs = Vec::new();
@@ -195,6 +203,7 @@ fn build_ast(pair: pest::iterators::Pair<Rule>, dst: &mut Vec<Term>) {
 }
 
 fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
+    trace!("{:?}", pair.as_rule());
     match pair.as_rule() {
         Rule::pipe => {
             //Term::pipe
@@ -336,6 +345,7 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
             }
             Term::array(items)
         }
+        Rule::EOI => Term::noop,
         _ => {
             println!("UNHANDLED: {}", pair);
             Term::noop

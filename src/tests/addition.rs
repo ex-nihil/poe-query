@@ -28,7 +28,6 @@ mod addition {
 
     #[test]
     fn arrays() {
-        // BUG: interpret rhs as an index
         let result = process("[0] + [1]");
         assert_eq!(result, vec!["[0,1]"]);
     }
