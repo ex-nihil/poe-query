@@ -1,4 +1,4 @@
-.Mods[0:10][] |
+.Mods | select(.GenerationWeight_TagsKeys | length > 0)[]
 {
     id: .Id,
     domain: .Domain,

@@ -204,7 +204,7 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                             Some(Value::Object(Box::new(output)))
                         }))
                     } else {
-                        let output = self.traverse(&mut context.clone(), cache, obj_terms);
+                        let output = self.traverse(context, cache, obj_terms);
                         Some(Value::Object(Box::new(output)))
                     }
                 },
@@ -243,7 +243,7 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                     }
                 },
                 Term::array(arr_terms) => {
-                    let result = self.traverse(&mut context.clone(), cache, &arr_terms.to_vec());
+                    let result = self.traverse(context, cache, &arr_terms.to_vec());
                     match result {
                         Value::Empty => Some(Value::List(Vec::with_capacity(0))),
                         Value::List(_) => Some(result),
@@ -270,7 +270,7 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                                 let keys = pairs.iter().filter_map(|kv| match kv {
                                     Value::KeyValue(key, _) => {
                                         match *key.clone() {
-                                            Value::Str(key) => Some(Value::Str(key)),
+                                            Value::Str(key) => Some(Value::Str(key.to_string())),
                                             _ => None,
                                         }
                                     },
@@ -284,7 +284,7 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                     value => unimplemented!("Unsupported type '{:?}' for 'keys' operation", value)
                 },
                 Term::key(terms) => {
-                    self.traverse_terms_inner(&mut context.clone(), cache, terms)
+                    self.traverse_terms_inner(context, cache, terms)
                 },
                 Term::string(text) => {
                     Some(Value::Str(text.to_string()))
