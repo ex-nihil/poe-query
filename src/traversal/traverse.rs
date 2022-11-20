@@ -2,49 +2,43 @@ use std::collections::HashMap;
 
 use log::*;
 
-use crate::{DatReader, Term};
+use crate::{Term};
 use crate::dat::file::DatFile;
 use crate::dat::DatStoreImpl;
 use crate::dat::specification::{FieldSpecImpl, FileSpec};
 use crate::query::{Compare, Operation};
+use crate::traversal::{StaticContext, TermsProcessor};
+use crate::traversal::utils::{iterate, reduce};
 
 use super::value::Value;
 
-#[derive(Default)]
-pub struct StaticContext<'a> {
-    pub store: Option<&'a DatReader<'a>>,
+/** entry point */
+impl TermsProcessor for StaticContext<'_> {
+    fn process(&self, terms: &[Term]) -> Value {
+        self.traverse(&mut TraversalContext::default(), &mut SharedCache::default(), terms)
+    }
 }
 
-/** Local context */
+/** Shared mutable data during traversal */
+#[derive(Default)]
+pub struct SharedCache {
+    variables: HashMap<String, Value>,
+    files: HashMap<String, DatFile>,
+}
+
+/** Local mutable data during traversal */
 #[derive(Debug, Clone, Default)]
-pub struct TraversalContext {
-    pub current_field: Option<String>,
-    pub current_file: Option<String>,
+struct TraversalContext {
+    current_field: Option<String>,
+    current_file: Option<String>,
     identity: Option<Value>,
 }
 
-impl TraversalContext {
-    pub fn clone_value(&self, ident: Option<Value>) -> Self {
-        Self {
-            current_field: self.current_field.clone(),
-            current_file: self.current_file.clone(),
-            identity: ident
-        }
-    }
+trait Traverse<'a> {
+    fn traverse(&self, context: &mut TraversalContext, cache: &mut SharedCache, parsed_terms: &[Term]) -> Value;
+    fn traverse_term(&self, context: &mut TraversalContext, cache: &mut SharedCache, term: &Term) -> Value;
+    fn traverse_terms_inner(&self, context: &mut TraversalContext, cache: &mut SharedCache, terms: &[Term]) -> Option<Value>;
 
-    pub fn identity(&mut self) -> Value {
-        self.identity.take().unwrap_or(Value::Empty)
-    }
-}
-
-/** Shared cache */
-#[derive(Default)]
-pub struct SharedCache {
-    pub variables: HashMap<String, Value>,
-    pub files: HashMap<String, DatFile>,
-}
-
-pub trait TraversalContextImpl<'a> {
     fn child(&self, context: &mut TraversalContext, cache: &mut SharedCache, name: &str);
     fn index(&self, context: &mut TraversalContext, index: usize);
     fn index_reverse(&self, context: &mut TraversalContext, index: usize);
@@ -57,19 +51,8 @@ pub trait TraversalContextImpl<'a> {
     fn rows_from(&self, cache: &mut SharedCache, file: &str, indices: &[u64]) -> Value;
 }
 
-pub trait TermsProcessor {
-    fn process_terms(&self, terms: &[Term]) -> Value;
-    fn process(&self, context: &mut TraversalContext, cache: &mut SharedCache, parsed_terms: &[Term]) -> Value;
-    fn traverse_term(&self, context: &mut TraversalContext, cache: &mut SharedCache, term: &Term) -> Value;
-    fn traverse_terms_inner(&self, context: &mut TraversalContext, cache: &mut SharedCache, terms: &[Term]) -> Option<Value>;
-}
-
-impl TermsProcessor for StaticContext<'_> {
-    fn process_terms(&self, terms: &[Term]) -> Value {
-        self.process(&mut TraversalContext::default(), &mut SharedCache::default(), terms)
-    }
-
-    fn process(&self, context: &mut TraversalContext, cache: &mut SharedCache, parsed_terms: &[Term]) -> Value {
+impl<'a> Traverse<'a> for StaticContext<'a> {
+    fn traverse(&self, context: &mut TraversalContext, cache: &mut SharedCache, parsed_terms: &[Term]) -> Value {
         let values: Vec<Value> = if parsed_terms.contains(&Term::comma) {
             parsed_terms
                 .split(|term| matches!(term, Term::comma))
@@ -134,8 +117,8 @@ impl TermsProcessor for StaticContext<'_> {
 
                     let result = iterate(elems, |v| {
 
-                        let left = self.process(&mut context.clone_value(Some(v.clone())), cache, lhs);
-                        let right = self.process(&mut context.clone_value(Some(v.clone())), cache, rhs);
+                        let left = self.traverse(&mut context.clone_value(Some(v.clone())), cache, lhs);
+                        let right = self.traverse(&mut context.clone_value(Some(v.clone())), cache, rhs);
 
                         let selected = match op {
                             Compare::equals => left == right,
@@ -203,31 +186,31 @@ impl TermsProcessor for StaticContext<'_> {
                     let result = reduce(value, &mut |acc, v| {
                         cache.variables.insert(variable.to_string(), v);
                         reduce_context.identity = Some(acc);
-                        self.process(&mut reduce_context, cache, terms)
+                        self.traverse(&mut reduce_context, cache, terms)
                     });
 
                     Some(result)
                 },
                 Term::map(terms) => {
                     let result = iterate(self.to_iterable(context, cache), |v| {
-                        Some(self.process(&mut context.clone_value(Some(v)), cache, terms))
+                        Some(self.traverse(&mut context.clone_value(Some(v)), cache, terms))
                     });
                     Some(result)
                 },
                 Term::object(obj_terms) => {
                     if let Some(value) = context.identity.take() {
                         Some(iterate(value, |v| {
-                            let output = self.process(&mut context.clone_value(Some(v)), cache, obj_terms);
+                            let output = self.traverse(&mut context.clone_value(Some(v)), cache, obj_terms);
                             Some(Value::Object(Box::new(output)))
                         }))
                     } else {
-                        let output = self.process(&mut context.clone(), cache, obj_terms);
+                        let output = self.traverse(&mut context.clone(), cache, obj_terms);
                         Some(Value::Object(Box::new(output)))
                     }
                 },
                 Term::kv(key, value_terms) => {
-                    let key = self.process(&mut context.clone(), cache, &[*key.clone()]);
-                    let result = self.process(&mut context.clone(), cache, &value_terms.to_vec());
+                    let key = self.traverse(&mut context.clone(), cache, &[*key.clone()]);
+                    let result = self.traverse(&mut context.clone(), cache, &value_terms.to_vec());
                     trace!("Term::kv result: {:?} {:?}", key, result);
                     match key {
                         Value::Empty | Value::List(_) => None,
@@ -260,7 +243,7 @@ impl TermsProcessor for StaticContext<'_> {
                     }
                 },
                 Term::array(arr_terms) => {
-                    let result = self.process(&mut context.clone(), cache, &arr_terms.to_vec());
+                    let result = self.traverse(&mut context.clone(), cache, &arr_terms.to_vec());
                     match result {
                         Value::Empty => Some(Value::List(Vec::with_capacity(0))),
                         Value::List(_) => Some(result),
@@ -347,9 +330,7 @@ impl TermsProcessor for StaticContext<'_> {
 
         context.identity.take()
     }
-}
 
-impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
     fn child(&self, context: &mut TraversalContext, cache: &mut SharedCache, name: &str) {
         debug!("entered {}", name);
 
@@ -648,37 +629,16 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
     }
 }
 
-// TODO: move this somewhere else
-fn iterate<F>(value: Value, mut action: F) -> Value
-where
-    F: FnMut(Value) -> Option<Value> + Send + Sync,
-{
-    match value {
-        Value::Iterator(elements) => {
-            let mut list = Vec::new();
-            for e in elements {
-                if let Some(v) = action(e) {
-                    list.push(v);
-                }
-            }
-            Value::List(list)
-        },
-        v => action(v).expect("non-iterable must return something"),
+impl TraversalContext {
+    pub fn clone_value(&self, ident: Option<Value>) -> Self {
+        Self {
+            current_field: self.current_field.clone(),
+            current_file: self.current_file.clone(),
+            identity: ident
+        }
     }
-}
 
-fn reduce<F>(initial: Value, action: &mut F) -> Value
-where
-    F: FnMut(Value, Value) -> Value,
-{
-    match initial {
-        Value::Iterator(elements) => {
-            elements.into_iter().reduce(|accum, item| {
-                action(accum, item)
-            }).unwrap_or(Value::Empty)
-        }
-        _ => {
-            action(Value::Empty, initial)
-        }
+    pub fn identity(&mut self) -> Value {
+        self.identity.take().unwrap_or(Value::Empty)
     }
 }

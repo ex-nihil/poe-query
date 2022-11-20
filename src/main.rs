@@ -12,7 +12,7 @@ use simplelog::*;
 
 use crate::dat::DatReader;
 use crate::query::Term;
-use crate::traversal::traverse::{SharedCache, StaticContext, TermsProcessor, TraversalContext};
+use crate::traversal::{StaticContext, TermsProcessor};
 use crate::traversal::value::Value;
 
 mod dat;
@@ -59,10 +59,8 @@ fn main() {
     let (read_index_ms, now) = (now.elapsed().as_millis(), Instant::now());
 
     // Transform
-    let navigator = StaticContext {
-        store: Some(&container),
-    };
-    let result = navigator.process(&mut TraversalContext::default(), &mut SharedCache::default(), &terms);
+    let context = StaticContext::new(&container);
+    let result = StaticContext::process(&context, &terms);
     let (query_ms, now) = (now.elapsed().as_millis(), Instant::now());
 
     // Output

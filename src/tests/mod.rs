@@ -9,15 +9,15 @@ mod string;
 
 #[cfg(test)]
 pub mod test_util {
-    use crate::{query, StaticContext, Term, TermsProcessor, Value};
+    use crate::{query, Term, Value};
+    use crate::traversal::{StaticContext, TermsProcessor};
 
     pub fn process(input: &str) -> Vec<String> {
         println!("Input: {}", input);
         let terms = query::parse(input);
         print_terms(&terms, 0);
 
-        let value = StaticContext::default()
-            .process_terms(&terms);
+        let value = StaticContext::default().process(&terms);
 
         match value {
             Value::Iterator(items) => {
