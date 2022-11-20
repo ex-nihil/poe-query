@@ -270,7 +270,7 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                                 let keys = pairs.iter().filter_map(|kv| match kv {
                                     Value::KeyValue(key, _) => {
                                         match *key.clone() {
-                                            Value::Str(key) => Some(Value::Str(key.to_string())),
+                                            Value::Str(key) => Some(Value::Str(key)),
                                             _ => None,
                                         }
                                     },
