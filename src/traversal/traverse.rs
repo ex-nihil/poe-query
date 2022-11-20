@@ -48,7 +48,7 @@ pub trait TraversalContextImpl<'a> {
     fn child(&self, context: &mut TraversalContext, cache: &mut SharedCache, name: &str);
     fn index(&self, context: &mut TraversalContext, index: usize);
     fn index_reverse(&self, context: &mut TraversalContext, index: usize);
-    fn slice(&self, context: &mut TraversalContext, from: usize, to: usize);
+    fn slice(&self, context: &mut TraversalContext, from: i64, to: i64);
     fn to_iterable(&self, context: &mut TraversalContext, cache: &mut SharedCache) -> Value;
     fn value(&self, context: &mut TraversalContext) -> Value;
     fn identity(&self, context: &mut TraversalContext) -> Value;
@@ -419,14 +419,30 @@ impl<'a> TraversalContextImpl<'a> for StaticContext<'a> {
         };
     }
 
-    fn slice(&self, context: &mut TraversalContext, from: usize, to: usize) {
+    fn slice(&self, context: &mut TraversalContext, from: i64, to: i64) {
         let value = context.identity();
         context.identity = match value {
             Value::List(list) => {
-                let sliced = list[from..usize::min(to, list.len())].to_vec();
-                Some(Value::List(sliced))
+                let size = list.len();
+                let from = if from.is_negative() { size - from.unsigned_abs() as usize } else { from as usize };
+                let to = if to.is_negative() { size - to.unsigned_abs() as usize } else { to as usize };
+                if from > to {
+                    Some(Value::List(vec![]))
+                } else {
+                    let sliced = list[from..usize::min(to, list.len())].to_vec();
+                    Some(Value::List(sliced))
+                }
             }
-            Value::Str(str) => Some(Value::Str(str[from..to].to_string())),
+            Value::Str(str) => {
+                let size = str.len();
+                let from = if from.is_negative() { size - from.unsigned_abs() as usize } else { from as usize };
+                let to = if to.is_negative() { size - to.unsigned_abs() as usize } else { to as usize };
+                if from > to {
+                    Some(Value::List(vec![]))
+                } else {
+                    Some(Value::Str(str[from..to].to_string()))
+                }
+            },
             _ => panic!("attempt to index non-indexable value {:?}", value),
         };
     }

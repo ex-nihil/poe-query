@@ -11,8 +11,8 @@ bool_constant = { TRUE | FALSE }
 identifier = { !"." ~ (ASCII_ALPHANUMERIC | "_")+ }
 digits = @{ ASCII_DIGIT+ }
 
-slice_from = { digits+ }
-slice_to = { digits+ }
+slice_from = { minus? ~ digits+ }
+slice_to = { minus? ~ digits+ }
 
 index = { &ANY ~ "[" ~ number+ ~ "]" }
 slice = { &ANY ~ "[" ~ slice_from? ~ ":" ~ slice_to? ~ "]" }

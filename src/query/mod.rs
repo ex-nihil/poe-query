@@ -13,7 +13,7 @@ pub enum Term {
     kv_by_name(String),
     by_index(usize),
     by_index_reverse(usize),
-    slice(usize, usize),
+    slice(i64, i64),
     kv(Box<Term>, Vec<Term>),
     object(Vec<Term>),
     array(Vec<Term>),
@@ -309,23 +309,23 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
         }
         Rule::slice => {
             let mut inner = pair.into_inner();
-            let mut from = 0_usize;
-            let mut to = usize::MAX;
+            let mut from = 0;
+            let mut to = i64::MAX;
             if let Some(first) = inner.next() {
                 match first.as_rule() {
                     Rule::slice_from => {
-                        from = first.into_inner().as_str().parse::<usize>().unwrap()
+                        from = first.into_inner().as_str().parse::<i64>().unwrap()
                     }
-                    Rule::slice_to => to = first.into_inner().as_str().parse::<usize>().unwrap(),
+                    Rule::slice_to => to = first.into_inner().as_str().parse::<i64>().unwrap(),
                     _ => {}
                 }
             }
             if let Some(first) = inner.next() {
                 match first.as_rule() {
                     Rule::slice_from => {
-                        from = first.into_inner().as_str().parse::<usize>().unwrap()
+                        from = first.into_inner().as_str().parse::<i64>().unwrap()
                     }
-                    Rule::slice_to => to = first.into_inner().as_str().parse::<usize>().unwrap(),
+                    Rule::slice_to => to = first.into_inner().as_str().parse::<i64>().unwrap(),
                     _ => {}
                 }
             }

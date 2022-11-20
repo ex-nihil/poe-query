@@ -4,6 +4,7 @@ mod misc;
 mod object;
 mod arrays;
 mod not_implemented;
+mod string;
 
 
 #[cfg(test)]
