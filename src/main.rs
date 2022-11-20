@@ -2,17 +2,16 @@
 extern crate pest_derive;
 
 use std::{env, process};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use clap::Parser;
 use log::*;
-use simplelog::*;
 use poe_bundle::BundleReader;
+use simplelog::*;
 
 use crate::dat::DatReader;
 use crate::query::Term;
-
 use crate::traversal::traverse::{SharedCache, StaticContext, TermsProcessor, TraversalContext};
 use crate::traversal::value::Value;
 
@@ -39,102 +38,109 @@ struct Args {
     query: String,
 }
 
-
 fn main() {
-    let arg = Args::parse();
+    let args = Args::parse();
+    init_logger(args.verbose);
+    debug!("Version {:?}", env!("CARGO_PKG_VERSION"));
 
-    CombinedLogger::init(vec![TermLogger::new(
-        match arg.verbose {
+    let install_path = find_poe_install(args.path);
+    let schema_path = find_schema_path();
+    info!("Using: {:?}", install_path);
+    info!("Schemas: {:?}", schema_path);
+
+    // Parse
+    let now = Instant::now();
+    let terms = query::parse(&args.query);
+    let (parse_query_ms, now) = (now.elapsed().as_millis(), Instant::now());
+
+    // Index bundles
+    let bundles = BundleReader::from_install(&install_path);
+    let container = DatReader::from_install(&args.language, &bundles, &schema_path);
+    let (read_index_ms, now) = (now.elapsed().as_millis(), Instant::now());
+
+    // Transform
+    let navigator = StaticContext {
+        store: Some(&container),
+    };
+    let result = navigator.process(&mut TraversalContext::default(), &mut SharedCache::default(), &terms);
+    let (query_ms, now) = (now.elapsed().as_millis(), Instant::now());
+
+    // Output
+    match result {
+        Value::Iterator(items) => {
+            items.iter().for_each(serialize_and_print);
+        }
+        _ => serialize_and_print(&result)
+    };
+    let serialize_ts = now.elapsed().as_millis();
+
+    info!("parse query: {}ms", parse_query_ms);
+    info!("bundle index: {}ms", read_index_ms);
+    info!("transform spent: {}ms", query_ms);
+    info!("serialize spent: {}ms", serialize_ts);
+}
+
+fn serialize_and_print(value: &Value) {
+    let serialized = serde_json::to_string_pretty(&value).unwrap();
+    println!("{}", serialized);
+}
+
+fn init_logger(verbosity: u8) {
+    TermLogger::init(
+        match verbosity {
             0 => LevelFilter::Warn,
             1 => LevelFilter::Info,
             2 => LevelFilter::Debug,
             _ => LevelFilter::Trace,
         },
-        Config::default(),
+        ConfigBuilder::new()
+            .set_time_level(LevelFilter::Off)
+            .build(),
         TerminalMode::Stderr,
-        ColorChoice::Never,
-    )]).unwrap_or_default();
-    debug!("Version {:?}", env!("CARGO_PKG_VERSION"));
-
-    let query = arg.query;
-
-    let path = find_poe_install(arg.path);
-    let specs = dat_schema_path();
-    info!("Using {:?}", path);
-    info!("Specs {:?}", specs);
-
-    let terms = query::parse(&query);
-
-    let mut now = Instant::now();
-
-    let bundles = BundleReader::from_install(path.as_path());
-
-    let container = DatReader::from_install(&arg.language, &bundles, specs.as_path());
-    let navigator = StaticContext {
-        store: Some(&container),
-    };
-    let read_index_ms = now.elapsed().as_millis();
-
-    now = Instant::now();
-    let value = navigator.process(&mut TraversalContext::default(), &mut SharedCache::default(), &terms);
-    let query_ms = now.elapsed().as_millis();
-
-    now = Instant::now();
-
-    match value {
-        Value::Iterator(items) => {
-            items.iter().for_each(|item| {
-                let serialized = serde_json::to_string_pretty(item).expect("seralized");
-                println!("{}", serialized);
-            });
-        }
-        _ => {
-            let serialized = serde_json::to_string_pretty(&value).expect("serialized2");
-            println!("{}", serialized);
-        }
-    };
-    let serialize_ts = now.elapsed().as_millis();
-
-    info!("setup spent: {}ms", read_index_ms);
-    info!("transform spent: {}ms", query_ms);
-    info!("serialize spent: {}ms", serialize_ts);
+        ColorChoice::Never)
+        .unwrap_or_default();
 }
 
-fn find_poe_install(path_arg: Option<PathBuf>) -> PathBuf {
+fn find_poe_install(path_arg: Option<PathBuf>) -> Box<Path> {
     match path_arg {
-        Some(p) => {
-            let is_file = p.exists() && p.is_file();
-            let found_ggpk = p.join("Content.ggpk").exists();
-            let found_index = p.join("Bundles2/_.index.bin").exists();
-            match is_file || found_ggpk || found_index {
-                true => Some(p),
+        Some(path) => {
+            let is_file = path.exists() && path.is_file();
+            match is_file || contains_ggpk_or_index(&path) {
+                true => Some(path),
                 false => None
             }
-        },
-        None =>
-            [
-                ".",
-                "C:/Program Files (x86)/Grinding Gear Games/Path of Exile",
-                "C:/Program Files/Steam/steamapps/common/Path of Exile"
-        ].into_iter()
-                .find_map(|p| {
-                    let path = PathBuf::from(p);
-                    let has_ggpk = path.join("Content.ggpk").exists();
-                    let has_index = path.join("Bundles2/_.index.bin").exists();
-                    match has_ggpk || has_index {
-                        true => Some(path.canonicalize().unwrap()),
-                        false => None
-                    }
-                })
+        }
+        None => attempt_to_find_installation()
     }.unwrap_or_else(|| {
         error!("Path of Exile not found. Provide a valid path with -p flag.");
         process::exit(-1);
-    })
+    }).into_boxed_path()
 }
 
-fn dat_schema_path() -> PathBuf {
+fn attempt_to_find_installation() -> Option<PathBuf> {
+    [
+        ".",
+        "C:/Program Files (x86)/Grinding Gear Games/Path of Exile",
+        "C:/Program Files/Steam/steamapps/common/Path of Exile"
+    ].into_iter()
+        .find_map(|p| {
+            let path = PathBuf::from(p);
+            match contains_ggpk_or_index(&path) {
+                true => Some(path.canonicalize().unwrap()),
+                false => None
+            }
+        })
+}
+
+fn contains_ggpk_or_index(path: &Path) -> bool {
+    let has_ggpk = path.join("Content.ggpk").exists();
+    let has_index = path.join("Bundles2/_.index.bin").exists();
+    has_ggpk || has_index
+}
+
+fn find_schema_path() -> Box<Path> {
     let mut schema_dir = env::current_exe().unwrap();
     schema_dir.pop(); // remove file
     schema_dir.push("dat-schema");
-    schema_dir
+    schema_dir.into_boxed_path()
 }
