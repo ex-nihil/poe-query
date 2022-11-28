@@ -146,7 +146,6 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                     let lhs_result = self.traverse_terms_inner(&mut context.clone(), cache, lhs);
                     let rhs_result = self.traverse_terms_inner(&mut context.clone(), cache, rhs);
                     let result = match op {
-                        // TODO: add operation support on the different types
                         Operation::add => lhs_result.unwrap() + rhs_result.unwrap(),
                         Operation::subtract => lhs_result.unwrap() - rhs_result.unwrap(),
                         _ => Value::Empty,
@@ -162,7 +161,7 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                     Some(cache.variables.get(name).unwrap_or(&Value::Empty).clone())
                 },
                 Term::reduce(outer_terms, init, terms) => {
-                    // seach for variables
+                    // search for variables
                     let vars: Vec<&String> = outer_terms
                         .iter()
                         .filter_map(|term| match term {

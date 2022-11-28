@@ -6,12 +6,13 @@ use std::ops::Deref;
 use std::process;
 use crate::Value::KeyValue;
 
-#[derive(Debug, Clone, PartialOrd, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialOrd, PartialEq)]
 pub enum Value {
     Str(String),
     Byte(u8),
     U64(u64),
     I64(i64),
+    F32(f32),
     List(Vec<Value>),
     Iterator(Vec<Value>),
     KeyValue(Box<Value>, Box<Value>),
@@ -27,6 +28,7 @@ impl fmt::Display for Value {
             Value::Byte(_) => write!(f, "Byte"),
             Value::U64(_) => write!(f, "Int"),
             Value::I64(_) => write!(f, "Int"),
+            Value::F32(_) => write!(f, "Float"),
             Value::List(list) => write!(f, "List(length = {})", list.len()),
             Value::Iterator(_) => write!(f, "Iterator"),
             Value::KeyValue(_, _) => write!(f, "KeyValue"),
@@ -121,7 +123,6 @@ impl Serialize for Value {
     where
         S: Serializer,
     {
-        //warn!("{:?}", self);
         match self {
             Value::Object(content) => match content.deref() {
                 Value::List(list) => {
@@ -166,6 +167,7 @@ impl Serialize for Value {
             Value::Byte(value) => serializer.serialize_u8(*value),
             Value::U64(value) => serializer.serialize_u64(*value),
             Value::I64(value) => serializer.serialize_i64(*value),
+            Value::F32(value) => serializer.serialize_f32(*value),
             Value::Bool(value) => serializer.serialize_bool(*value),
             Value::Empty => serializer.serialize_unit(),
         }

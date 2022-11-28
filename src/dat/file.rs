@@ -156,6 +156,7 @@ trait ReadBytesToValue {
     fn u8(&mut self) -> Value;
     fn u32(&mut self) -> Value;
     fn i32(&mut self) -> Value;
+    fn f32(&mut self) -> Value;
     fn u64(&mut self) -> Value;
     fn utf16(&mut self) -> String;
 }
@@ -168,6 +169,7 @@ impl ReadBytesToValue for Cursor<&[u8]> {
             "u8"   => self.u8(),
             "u32"  => self.u32(),
             "i32"  => self.i32(),
+            "f32"  => self.f32(),
             "ptr"  => self.u64(),
             "u64"  => self.u64(),
             "string" => Value::Str(self.utf16()),
@@ -208,6 +210,13 @@ impl ReadBytesToValue for Cursor<&[u8]> {
         }
     }
 
+    fn f32(&mut self) -> Value {
+        match self.read_f32::<LittleEndian>() {
+            Ok(value) => f32_to_enum(value),
+            Err(_) => panic!("Unable to read f32"),
+        }
+    }
+
     fn u64(&mut self) -> Value {
         match self.read_u64::<LittleEndian>() {
             Ok(value) => u64_to_enum(value),
@@ -241,4 +250,8 @@ fn u32_to_enum(value: u32) -> Value {
 fn i32_to_enum(value: i32) -> Value {
     // TODO: check for empty signal
     Value::I64(value as i64)
+}
+
+fn f32_to_enum(value: f32) -> Value {
+    Value::F32(value)
 }

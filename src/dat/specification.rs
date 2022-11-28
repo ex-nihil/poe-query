@@ -1,9 +1,10 @@
+use std::{fmt, process};
 use std::collections::HashMap;
-use std::fmt;
 use std::fmt::Formatter;
 use std::path::Path;
 
 use apollo_parser::ast::AstNode;
+use log::error;
 use serde::Deserialize;
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Clone)]
@@ -115,6 +116,7 @@ impl FileSpec {
             for def in ast.document().definitions() {
                 match def {
                     Definition::ObjectTypeDefinition(obj) => {
+
                         let filename = obj.name().unwrap().text().to_string();
                         let mut offset = 0;
 
@@ -123,18 +125,28 @@ impl FileSpec {
                             let current_offset = offset;
                             let name = field.name().unwrap().text();
 
+                            if let Some(field_directives)  = field.directives().map(|x| x.directives()) {
+                                for directive in field_directives {
+                                    if directive.name().unwrap().text().as_str() == "file" {
+                                        error!("Filepath reference fields not supported yet.");
+                                        process::exit(-1);
+                                    }
+                                }
+                            }
+
                             let mut is_list = false;
 
                             let type_name = match field.ty().unwrap() {
                                 Type::NamedType(it) => {
-                                    match it.syntax().text().to_string().as_str() {
-                                        "i64" | "u64" => offset += 8,
+                                    let spec_type = it.syntax().text().to_string();
+                                    match spec_type.as_str() {
+                                        "rid" | "i64" | "u64" => offset += 8,
+                                        "u32" | "i32" | "f32" | "string" => offset += 4,
                                         "bool" | "u8" => offset += 1,
-                                        "u32" | "i32" | "rid" | "string" => offset += 4,
                                         t if t == filename => offset += 4, // self reference
                                         _ => offset += 8,
                                     }
-                                    it.syntax().text().to_string()
+                                    spec_type
                                 },
                                 Type::ListType(it) => {
                                     offset += 8;
@@ -144,8 +156,13 @@ impl FileSpec {
                                 node => unimplemented!("Unhandled node: {:?}", node),
                             };
 
+                            let type_name = match type_name.as_str() {
+                                "rid" => "u64".to_string(),
+                                _ => type_name
+                            };
+
                             let key_file = match type_name.as_str() {
-                                "i32" | "bool" | "rid" | "string" | "f32" | "u32" => None,
+                                "i32" | "bool" | "string" | "f32" | "u32" => None,
                                 t => {
                                     Some(t.to_string())
                                 }
@@ -163,7 +180,6 @@ impl FileSpec {
                                 (false, Some(_)) => "u32".to_string(),
                                 (false, None) => match type_name.as_str() {
                                     "string" => "ref|string",
-                                    "rid" => "u32",
                                     t => t
                                 }.to_string(),
                             };
@@ -199,7 +215,7 @@ impl FileSpec {
     pub fn field_size(field: &FieldSpec) -> u64 {
         let datatype = field.datatype.split('|').next().unwrap();
         match datatype {
-            "u64" | "list" => 8,
+            "u64" | "i64" | "list" => 8,
             "bool" | "u8" => 1,
             _ => 4,
         }
