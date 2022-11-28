@@ -162,7 +162,7 @@ impl FileSpec {
                             };
 
                             let key_file = match type_name.as_str() {
-                                "i32" | "bool" | "string" | "f32" | "u32" | "path" => None,
+                                "i32" | "bool" | "string" | "f32" | "u32" | "path" | "_" => None,
                                 t => {
                                     Some(t.to_string())
                                 }

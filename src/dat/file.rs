@@ -187,6 +187,7 @@ impl ReadBytesToValue for Cursor<&[u8]> {
             "u64"  => self.u64(),
             "string" => Value::Str(self.utf16()),
             "path" => Value::Str(self.utf8()),
+            "_" => Value::Empty,
             value => panic!("Unsupported type in specification. {}", value),
         }
     }
