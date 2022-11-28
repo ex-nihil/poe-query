@@ -146,7 +146,19 @@ impl DatFile {
         self.check_offset(exact_offset);
 
         let mut c = Cursor::new(&self.bytes[exact_offset..]);
-        (0..len).map(|_| c.read_value(data_type)).collect()
+        (0..len).map(|_| {
+            if data_type == "string" ||  data_type == "path" {
+                match c.u32() {
+                    Value::U64(offset) => {
+                        let mut text_cursor = Cursor::new(&self.bytes[(self.data_section + offset as usize)..]);
+                        text_cursor.read_value(data_type)
+                    },
+                    _ => panic!("failed reading u32 offset")
+                }
+            } else {
+                c.read_value(data_type)
+            }
+        }).collect()
     }
 }
 
@@ -159,6 +171,7 @@ trait ReadBytesToValue {
     fn f32(&mut self) -> Value;
     fn u64(&mut self) -> Value;
     fn utf16(&mut self) -> String;
+    fn utf8(&mut self) -> String;
 }
 
 impl ReadBytesToValue for Cursor<&[u8]> {
@@ -173,6 +186,7 @@ impl ReadBytesToValue for Cursor<&[u8]> {
             "ptr"  => self.u64(),
             "u64"  => self.u64(),
             "string" => Value::Str(self.utf16()),
+            "path" => Value::Str(self.utf8()),
             value => panic!("Unsupported type in specification. {}", value),
         }
     }
@@ -230,6 +244,15 @@ impl ReadBytesToValue for Cursor<&[u8]> {
             .take_while(|&x| x != 0u16)
             .collect::<Vec<u16>>();
         String::from_utf16(&raw).expect("Unable to decode as UTF-16 String")
+    }
+
+    fn utf8(&mut self) -> String {
+        let raw = (0..)
+            .map(|_| self.read_u16::<LittleEndian>().unwrap())
+            .take_while(|&x| x != 0u16)
+            .map(|x| x as u8)
+            .collect::<Vec<u8>>();
+        String::from_utf8(raw).expect("Unable to decode as UTF-8 String")
     }
 }
 

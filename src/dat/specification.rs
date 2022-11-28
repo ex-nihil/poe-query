@@ -1,10 +1,9 @@
-use std::{fmt, process};
+use std::fmt;
 use std::collections::HashMap;
 use std::fmt::Formatter;
 use std::path::Path;
 
 use apollo_parser::ast::AstNode;
-use log::error;
 use serde::Deserialize;
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Clone)]
@@ -125,11 +124,11 @@ impl FileSpec {
                             let current_offset = offset;
                             let name = field.name().unwrap().text();
 
+                            let mut is_path_field = false;
                             if let Some(field_directives)  = field.directives().map(|x| x.directives()) {
                                 for directive in field_directives {
                                     if directive.name().unwrap().text().as_str() == "file" {
-                                        error!("Filepath reference fields not supported yet.");
-                                        process::exit(-1);
+                                        is_path_field = true;
                                     }
                                 }
                             }
@@ -158,11 +157,12 @@ impl FileSpec {
 
                             let type_name = match type_name.as_str() {
                                 "rid" => "u64".to_string(),
+                                _ if is_path_field => "path".to_string(),
                                 _ => type_name
                             };
 
                             let key_file = match type_name.as_str() {
-                                "i32" | "bool" | "string" | "f32" | "u32" => None,
+                                "i32" | "bool" | "string" | "f32" | "u32" | "path" => None,
                                 t => {
                                     Some(t.to_string())
                                 }
@@ -180,10 +180,10 @@ impl FileSpec {
                                 (false, Some(_)) => "u32".to_string(),
                                 (false, None) => match type_name.as_str() {
                                     "string" => "ref|string",
+                                    "path" => "ref|path",
                                     t => t
                                 }.to_string(),
                             };
-
                             if enum_spec.is_some() {
                                 offset -= 4;
                                 type_value = "u32".to_string();

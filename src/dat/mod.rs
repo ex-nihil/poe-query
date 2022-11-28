@@ -63,7 +63,7 @@ impl<'a> DatStoreImpl<'a> for DatReader<'a> {
     fn file_by_filename(&self, filename: &str) -> Option<DatFile> {
         let path = self.get_filepath(filename);
         info!("Unpacking {}", path);
-        //let Some(spec) = self.spec(&path) else { return None };
+        // TODO: remove unwrap() in poe_bundle and return an actual error
         let Ok(bytes) = self.bundle_reader.bytes(&path) else { return None };
 
         let file = DatFile::from_bytes(path, bytes);
