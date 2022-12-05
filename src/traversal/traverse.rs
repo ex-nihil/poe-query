@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::process;
 
 use log::*;
 
@@ -112,6 +113,10 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
             self.enter_foreign(context, cache);
 
             context.identity = match term {
+                Term::noop => {
+                    context.identity.take()
+                },
+                Term::bool(value) => Some(Value::Bool(*value)),
                 Term::select(lhs, op, rhs) => {
                     let elems = self.to_iterable(context, cache);
 
@@ -119,6 +124,13 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
 
                         let left = self.traverse(&mut context.clone_value(Some(v.clone())), cache, lhs);
                         let right = self.traverse(&mut context.clone_value(Some(v.clone())), cache, rhs);
+
+                        let Some(op) = op else {
+                            return match left {
+                                Value::Bool(true) => Some(v),
+                                _ => None
+                            }
+                        };
 
                         let selected = match op {
                             Compare::equals => left == right,
@@ -136,8 +148,23 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                     });
                     Some(result)
                 },
-                Term::noop => {
-                    context.identity.take()
+                Term::contains(terms) => {
+                    let Some(inner) = self.traverse_terms_inner(&mut context.clone(), cache, terms) else { return None };
+
+                    match inner {
+                        Value::Str(substr) => {
+                            let Some(value) = context.identity.take() else { return None };
+                            let Value::Str(field_string) = value else { return None };
+                            if field_string.contains(&substr) {
+                                return Some(Value::Bool(true))
+                            }
+                        },
+                        wanted_contains => {
+                            error!("Unsupported contains type: {:?}", wanted_contains);
+                            process::exit(-1);
+                        }
+                    }
+                    Some(Value::Bool(false))
                 },
                 Term::iterator => {
                     Some(self.to_iterable(context, cache))
@@ -331,7 +358,7 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
     }
 
     fn child(&self, context: &mut TraversalContext, cache: &mut SharedCache, name: &str) {
-        debug!("entered {}", name);
+        trace!("entered {}", name);
 
         let spec: Option<&FileSpec> = self.store.and_then(|s| s.spec_by_export(name))
             .or_else(|| self.store.and_then(|s| s.spec_by_export(context.current_file.as_ref().unwrap_or(&"".to_string()))));

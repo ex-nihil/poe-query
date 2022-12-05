@@ -16,14 +16,16 @@ pub enum Term {
     slice(i64, i64),
     kv(Box<Term>, Vec<Term>),
     object(Vec<Term>),
+    bool(bool),
     array(Vec<Term>),
-    select(Vec<Term>, Compare, Vec<Term>),
+    select(Vec<Term>, Option<Compare>, Vec<Term>),
     calculate(Vec<Term>, Operation, Vec<Term>),
     iterator,
     string(String),
     key(Vec<Term>),
     set_variable(String),
     get_variable(String),
+    contains(Vec<Term>),
     unsigned_number(u64),
     reduce(Vec<Term>, Vec<Term>, Vec<Term>),
     map(Vec<Term>),
@@ -280,24 +282,24 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
             let mut lhs = Vec::new();
             let mut rhs = Vec::new();
             let mut current = &mut lhs;
-            let mut comparison = Compare::not_equals;
+            let mut comparison = None;
             for next in inner {
                 match next.as_rule() {
                     Rule::bool_constant => {
-                        comparison = match next.into_inner().next().unwrap().as_rule() {
-                            Rule::TRUE => Compare::equals,
-                            _ => Compare::not_equals,
+                        let bool = match next.into_inner().next().unwrap().as_rule() {
+                            Rule::TRUE => Term::bool(true),
+                            _ => Term::bool(false),
                         };
-                        return Term::select(vec![Term::unsigned_number(0)], comparison, vec![Term::unsigned_number(0)]);
+                        return Term::select(vec![bool], None, vec![]);
                     }
                     Rule::compare => {
                         comparison = match next.into_inner().next().unwrap().as_rule() {
-                            Rule::equal => Compare::equals,
-                            Rule::not_equal => Compare::not_equals,
-                            Rule::less_than => Compare::less_than,
-                            Rule::greater_than => Compare::greater_than,
-                            Rule::less_than_eq => Compare::less_than_eq,
-                            Rule::greater_than_eq => Compare::greater_than_eq,
+                            Rule::equal => Some(Compare::equals),
+                            Rule::not_equal => Some(Compare::not_equals),
+                            Rule::less_than => Some(Compare::less_than),
+                            Rule::greater_than => Some(Compare::greater_than),
+                            Rule::less_than_eq => Some(Compare::less_than_eq),
+                            Rule::greater_than_eq => Some(Compare::greater_than_eq),
                             p => panic!("Operation not implemented: {:?}", p),
                         };
                         current = &mut rhs;
@@ -306,6 +308,11 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
                 }
             }
             Term::select(lhs, comparison, rhs)
+        }
+        Rule::contains => {
+            let inner = pair.into_inner();
+            let inner_terms: Vec<_> = inner.map(to_term).collect();
+            Term::contains(inner_terms)
         }
         Rule::slice => {
             let mut inner = pair.into_inner();

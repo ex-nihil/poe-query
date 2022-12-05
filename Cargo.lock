@@ -365,7 +365,7 @@ dependencies = [
 
 [[package]]
 name = "poe_query"
-version = "0.1.12"
+version = "0.1.13"
 dependencies = [
  "apollo-parser",
  "byteorder",

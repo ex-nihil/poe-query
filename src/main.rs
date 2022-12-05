@@ -1,5 +1,6 @@
 #[macro_use]
 extern crate pest_derive;
+extern crate core;
 
 use std::{env, process};
 use std::path::{Path, PathBuf};

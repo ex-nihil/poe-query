@@ -1,12 +1,12 @@
 use log::*;
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 use std::{fmt, ops};
+use std::cmp::Ordering;
 use std::fmt::Formatter;
 use std::ops::Deref;
 use std::process;
-use crate::Value::KeyValue;
 
-#[derive(Debug, Clone, PartialOrd, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum Value {
     Str(String),
     Byte(u8),
@@ -91,7 +91,7 @@ impl ops::Add<Value> for Value {
 impl Value {
     fn key(&self) -> Option<&Value> {
         match self {
-            KeyValue(key, _) => Some(key),
+            Value::KeyValue(key, _) => Some(key),
             _ => None
         }
     }
@@ -170,6 +170,49 @@ impl Serialize for Value {
             Value::F32(value) => serializer.serialize_f32(*value),
             Value::Bool(value) => serializer.serialize_bool(*value),
             Value::Empty => serializer.serialize_unit(),
+        }
+    }
+}
+
+impl PartialEq<Value> for Value {
+    fn eq(&self, other: &Value) -> bool {
+        match (self, other) {
+            (Value::U64(lhs), Value::I64(rhs)) => *lhs as i128 == *rhs as i128,
+            (Value::I64(lhs), Value::U64(rhs)) => *lhs as i128 == *rhs as i128,
+
+            (Value::Str(lhs), Value::Str(rhs)) => lhs == rhs,
+            (Value::Byte(lhs), Value::Byte(rhs)) => lhs == rhs,
+            (Value::U64(lhs), Value::U64(rhs)) => lhs == rhs,
+            (Value::I64(lhs), Value::I64(rhs)) => lhs == rhs,
+            (Value::F32(lhs), Value::F32(rhs)) => lhs == rhs,
+            (Value::List(lhs), Value::List(rhs)) => lhs == rhs,
+            (Value::Iterator(lhs), Value::Iterator(rhs)) => lhs == rhs,
+            (Value::KeyValue(lhs_lhs, lhs_rhs), Value::KeyValue(rhs_lhs, rhs_rhs)) => {
+                lhs_lhs == rhs_lhs && lhs_rhs == rhs_rhs
+            },
+            (Value::Object(lhs), Value::Object(rhs)) => lhs == rhs,
+            (Value::Bool(lhs), Value::Bool(rhs)) => lhs == rhs,
+            (Value::Empty, Value::Empty) => true,
+            _ => false
+        }
+    }
+}
+
+impl PartialOrd<Value> for Value {
+    fn partial_cmp(&self, other: &Value) -> Option<Ordering> {
+        match (self, other) {
+            (Value::U64(lhs), Value::I64(rhs)) => {
+                (*lhs as i128).partial_cmp(&(*rhs as i128))
+            },
+            (Value::I64(lhs), Value::U64(rhs)) => {
+                (*lhs as i128).partial_cmp(&(*rhs as i128))
+            },
+            (Value::U64(lhs), Value::U64(rhs)) => lhs.partial_cmp(rhs),
+            (Value::I64(lhs), Value::I64(rhs)) => lhs.partial_cmp(rhs),
+            (Value::F32(lhs), Value::F32(rhs)) => lhs.partial_cmp(rhs),
+
+            (lhs, rhs) if lhs == rhs => Some(Ordering::Equal),
+            _ => None
         }
     }
 }
