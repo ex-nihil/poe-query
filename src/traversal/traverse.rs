@@ -560,6 +560,7 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                 })
             });
 
+        trace!("enter_foreign on field {:?}", current_field);
         if let Some(current_field) = current_field.filter(|x| x.is_foreign_key()) {
             context.current_field = None;
 

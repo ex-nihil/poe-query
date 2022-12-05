@@ -161,14 +161,13 @@ impl FileSpec {
                                 _ => type_name
                             };
 
+                            let enum_spec = enum_specs.get(type_name.as_str());
+
                             let key_file = match type_name.as_str() {
                                 "i32" | "bool" | "string" | "f32" | "u32" | "path" | "_" => None,
-                                t => {
-                                    Some(t.to_string())
-                                }
+                                _ if enum_spec.is_some() => None,
+                                fk => Some(fk.to_string())
                             };
-
-                            let enum_spec: Option<&EnumSpec> = key_file.as_ref().and_then(|x| enum_specs.get(x));
 
                             let mut type_value = match (is_list, &key_file) {
                                 (true, Some(_)) => {
