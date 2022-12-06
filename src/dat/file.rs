@@ -129,7 +129,7 @@ impl DatFile {
         } else {
             c.read_value(field.datatype.as_str())
         };
-        trace!("Read {} [{}]. Result: {:?}", field, row, result);
+        debug!("Result {}[{}] = {:?}", field, row, result);
         result
     }
 

@@ -93,10 +93,13 @@ fn init_logger(verbosity: u8) {
             _ => LevelFilter::Trace,
         },
         ConfigBuilder::new()
+            .set_thread_level(LevelFilter::Off)
             .set_time_level(LevelFilter::Off)
+            .set_location_level(LevelFilter::Off)
+            .set_target_level(LevelFilter::Off)
             .build(),
         TerminalMode::Stderr,
-        ColorChoice::Never)
+        ColorChoice::Auto)
         .unwrap_or_default();
 }
 

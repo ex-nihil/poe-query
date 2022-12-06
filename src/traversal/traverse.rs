@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::collections::HashMap;
 use std::process;
 
@@ -99,7 +100,10 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                 self.slice(context, *from, *to);
                 context.identity()
             }
-            _ => panic!("unhandled term: {:?}", term),
+            unexpected => {
+                error!("Unhandled term in query: {:?}.", unexpected);
+                process::exit(-1);
+            },
         }
     }
 
@@ -342,7 +346,10 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                         trace!("transpose output {:?}", outer);
                         Some(Value::List(outer))
                     }
-                    rawr => panic!("transpose is only supported on lists - {:?}", rawr),
+                    unexpected => {
+                        error!("Transpose is only supported on lists. Attempted on type: {}.", unexpected);
+                        process::exit(-1);
+                    },
                 },
                 Term::unsigned_number(value) => {
                     Some(Value::U64(*value))
@@ -398,13 +405,22 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
         context.identity = match value {
             Value::List(list) => match list.into_iter().nth(index) {
                 Some(value) => Some(value),
-                None => panic!("attempt to index outside list"),
+                None => {
+                    error!("Index out of bounds. List[{index}]");
+                    process::exit(-1);
+                },
             },
             Value::Str(str) => match str.chars().nth(index) {
                 Some(value) => Some(Value::Str(value.to_string())),
-                None => panic!("attempt to index outside string"),
+                None => {
+                    error!("Index out of bounds. String[{index}]");
+                    process::exit(-1);
+                },
             },
-            _ => panic!("attempt to index non-indexable value {:?}", value),
+            unexpected => {
+                error!("Type {unexpected} cannot be indexed");
+                process::exit(-1);
+            },
         };
     }
 
@@ -415,14 +431,23 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                 let size = list.len();
                 match list.into_iter().nth(size - index) {
                     Some(value) => Some(value),
-                    None => panic!("attempt to index outside list"),
+                    None => {
+                        error!("Index out of bounds. List[{index}]");
+                        process::exit(-1);
+                    },
                 }
             },
             Value::Str(str) => match str.chars().nth(index) {
                 Some(value) => Some(Value::Str(value.to_string())),
-                None => panic!("attempt to index outside string"),
+                None => {
+                    error!("Index out of bounds. String[{index}]");
+                    process::exit(-1);
+                },
             },
-            _ => panic!("attempt to index non-indexable value {:?}", value),
+            unexpected => {
+                error!("Type {unexpected} cannot be indexed");
+                process::exit(-1);
+            },
         };
     }
 
@@ -447,10 +472,14 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                 if from > to {
                     Some(Value::List(vec![]))
                 } else {
+                    let to = min(to, str.len());
                     Some(Value::Str(str[from..to].to_string()))
                 }
             },
-            _ => panic!("attempt to index non-indexable value {:?}", value),
+            unexpected => {
+                error!("Type {unexpected} cannot be sliced/indexed");
+                process::exit(-1);
+            }
         };
     }
 
@@ -464,15 +493,18 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
             Value::Object(content) => {
                 let fields = match *content {
                     Value::List(fields) => fields,
-                    _ => panic!("attempt to iterate an empty object"),
+                    unexpected => {
+                        error!("Type {unexpected} cannot be iterated over");
+                        process::exit(-1);
+                    }
                 };
                 Value::Iterator(fields)
             }
             Value::Empty => Value::Iterator(Vec::with_capacity(0)),
-            obj => panic!(
-                "unable to iterate, should i support this? {:?}",
-                obj
-            ),
+            unexpected => {
+                error!("Type {unexpected} cannot be iterated over");
+                process::exit(-1);
+            }
         }
     }
 
@@ -482,7 +514,6 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
         }
 
         match context.identity.take().unwrap() {
-            // TODO: extract to function
             Value::Object(entries) => {
                 match *entries {
                     Value::List(list) => {
@@ -504,7 +535,10 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                             Value::Empty
                         }
                     }
-                    _ => panic!("failed to extract value from kv! {:?}", entries),
+                    unexpected => {
+                        error!("failed to extract Value::Object. Object contained {}", unexpected);
+                        process::exit(-1);
+                    },
                 }
             },
             Value::Iterator(values) => {
@@ -521,7 +555,10 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                         Value::Object(elements) => {
                             let obj = match *elements {
                                 Value::List(fields) => fields,
-                                _ => panic!("uhm: {:?}", elements),
+                                unexpected => {
+                                    error!("Type {unexpected} unexpected in Value::Object");
+                                    process::exit(-1);
+                                }
                             };
 
                             let mut first = Value::Empty;
@@ -533,15 +570,18 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                                             break;
                                         }
                                     }
-                                    asd => panic!("what happened? {:?}", asd),
+                                    unexpected => {
+                                        error!("failed to extract Value::Object. Object contained {}", unexpected);
+                                        process::exit(-1);
+                                    },
                                 }
                             }
                             first
                         },
-                        val => panic!(
-                            "Attempting to get field of non-iterable and non-object. {:?}",
-                            val
-                        ),
+                        unexpected => {
+                            error!("Unable to to iterate over {}.", unexpected);
+                            process::exit(-1);
+                        },
                     };
                     result.push(item);
                 }
@@ -587,8 +627,8 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                 })
             });
 
-        trace!("enter_foreign on field {:?}", current_field);
         if let Some(current_field) = current_field.filter(|x| x.is_foreign_key()) {
+            trace!("enter_foreign on field {:?}", current_field);
             context.current_field = None;
 
             let fk_name = &current_field.file.as_ref().unwrap();
@@ -606,13 +646,19 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                     Value::Iterator(ids) => ids,
                     Value::U64(id) => vec![Value::U64(id)],
                     Value::Empty => vec![],
-                    item => panic!("Not a valid id for foreign key: {:?}", item),
+                    unexpected => {
+                        error!("Not a valid id for foreign key {}.", unexpected);
+                        process::exit(-1);
+                    },
                 }
                     .iter()
                     .filter_map(|v| match v {
                         Value::U64(i) => Some(*i),
                         Value::List(_) => None,
-                        _ => panic!("value {:?}", v),
+                        unexpected => {
+                            error!("Unexpected value {} in enter_foreign.", unexpected);
+                            process::exit(-1);
+                        },
                     })
                     .collect();
 
