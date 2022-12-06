@@ -10,11 +10,12 @@ mod string;
 #[cfg(test)]
 pub mod test_util {
     use crate::{query, Term, Value};
-    use crate::traversal::{StaticContext, TermsProcessor};
+    use crate::traversal::{StaticContext, QueryProcessor};
 
     pub fn process(input: &str) -> Vec<String> {
         println!("Input: {}", input);
-        let terms = query::parse(input);
+        let terms = query::parse_query(input).unwrap();
+
         print_terms(&terms, 0);
 
         let value = StaticContext::default().process(&terms);
@@ -32,18 +33,18 @@ pub mod test_util {
     pub fn print_terms(terms: &Vec<Term>, indentation: u8) {
         terms.iter().for_each(|term| {
             match term {
-                Term::calculate(lhs, op, rhs) => {
+                Term::Calculate(lhs, op, rhs) => {
                     indent(indentation); println!("{:?} (", op);
                     print_terms(lhs, indentation + 1);
                     print_terms(rhs, indentation + 1);
                     indent(indentation); println!(")");
                 }
-                Term::object(inner) => {
+                Term::ObjectConstruction(inner) => {
                     indent(indentation); println!("obj {{");
                     print_terms(inner, indentation + 1);
                     indent(indentation); println!("}}");
                 },
-                Term::array(inner) => {
+                Term::ArrayConstruction(inner) => {
                     indent(indentation); println!("array [");
                     print_terms(inner, indentation + 1);
                     indent(indentation); println!("]");

@@ -9,13 +9,13 @@ use crate::dat::file::DatFile;
 use crate::dat::DatStoreImpl;
 use crate::dat::specification::{FieldSpecImpl, FileSpec};
 use crate::query::{Compare, Operation};
-use crate::traversal::{StaticContext, TermsProcessor};
+use crate::traversal::{StaticContext, QueryProcessor};
 use crate::traversal::utils::{iterate, reduce};
 
 use super::value::Value;
 
 /** entry point */
-impl TermsProcessor for StaticContext<'_> {
+impl QueryProcessor for StaticContext<'_> {
     fn process(&self, terms: &[Term]) -> Value {
         self.traverse(&mut TraversalContext::default(), &mut SharedCache::default(), terms)
     }
@@ -36,7 +36,7 @@ struct TraversalContext {
     identity: Option<Value>,
 }
 
-trait Traverse<'a> {
+trait DataTraverser<'a> {
     fn traverse(&self, context: &mut TraversalContext, cache: &mut SharedCache, parsed_terms: &[Term]) -> Value;
     fn traverse_term(&self, context: &mut TraversalContext, cache: &mut SharedCache, term: &Term) -> Value;
     fn traverse_terms_inner(&self, context: &mut TraversalContext, cache: &mut SharedCache, terms: &[Term]) -> Option<Value>;
@@ -53,11 +53,11 @@ trait Traverse<'a> {
     fn rows_from(&self, cache: &mut SharedCache, file: &str, indices: &[u64]) -> Value;
 }
 
-impl<'a> Traverse<'a> for StaticContext<'a> {
+impl<'a> DataTraverser<'a> for StaticContext<'a> {
     fn traverse(&self, context: &mut TraversalContext, cache: &mut SharedCache, parsed_terms: &[Term]) -> Value {
-        let values: Vec<Value> = if parsed_terms.contains(&Term::comma) {
+        let values: Vec<Value> = if parsed_terms.contains(&Term::CommaSeparator) {
             parsed_terms
-                .split(|term| matches!(term, Term::comma))
+                .split(|term| matches!(term, Term::CommaSeparator))
                 .filter_map(|terms| self.traverse_terms_inner(&mut context.clone(), cache, terms))
                 .collect()
         } else {
@@ -79,24 +79,24 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
 
     fn traverse_term(&self, context: &mut TraversalContext, cache: &mut SharedCache, term: &Term) -> Value {
         match term {
-            Term::by_name(key) => {
+            Term::LookupByName(key) => {
                 self.child(context, cache, key);
                 context.identity()
             }
-            Term::kv_by_name(key) => {
+            Term::LookupKeyValueByName(key) => {
                 self.child(context, cache, key);
                 let asd = context.identity();
                 Value::KeyValue(Box::new(Value::Str(key.to_string())), Box::new(asd))
             }
-            Term::by_index(i) => {
+            Term::LookupByIndex(i) => {
                 self.index(context, *i);
                 context.identity()
             }
-            Term::by_index_reverse(i) => {
+            Term::ByIndexReverse(i) => {
                 self.index_reverse(context, *i);
                 context.identity()
             }
-            Term::slice(from, to) => {
+            Term::SliceData(from, to) => {
                 self.slice(context, *from, *to);
                 context.identity()
             }
@@ -117,11 +117,11 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
             self.enter_foreign(context, cache);
 
             context.identity = match term {
-                Term::noop => {
+                Term::NoOperation => {
                     context.identity.take()
-                },
-                Term::bool(value) => Some(Value::Bool(*value)),
-                Term::select(lhs, op, rhs) => {
+                }
+                Term::BoolLiteral(value) => Some(Value::Bool(*value)),
+                Term::Select(lhs, op, rhs) => {
                     let elems = self.to_iterable(context, cache);
 
                     let result = iterate(elems, |v| {
@@ -137,12 +137,12 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                         };
 
                         let selected = match op {
-                            Compare::equals => left == right,
-                            Compare::not_equals => left != right,
-                            Compare::less_than => left < right,
-                            Compare::greater_than => left > right,
-                            Compare::less_than_eq =>  left <= right,
-                            Compare::greater_than_eq => left >= right,
+                            Compare::Equals => left == right,
+                            Compare::NotEquals => left != right,
+                            Compare::LessThan => left < right,
+                            Compare::GreaterThan => left > right,
+                            Compare::LessThanEq =>  left <= right,
+                            Compare::GreaterThanEq => left >= right,
                         };
                         if selected {
                             Some(v)
@@ -152,7 +152,7 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                     });
                     Some(result)
                 },
-                Term::contains(terms) => {
+                Term::Contains(terms) => {
                     let Some(inner) = self.traverse_terms_inner(&mut context.clone(), cache, terms) else { return None };
 
                     match inner {
@@ -170,33 +170,33 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                     }
                     Some(Value::Bool(false))
                 },
-                Term::iterator => {
+                Term::Iterator => {
                     Some(self.to_iterable(context, cache))
-                },
-                Term::calculate(lhs, op, rhs) => {
+                }
+                Term::Calculate(lhs, op, rhs) => {
                     let lhs_result = self.traverse_terms_inner(&mut context.clone(), cache, lhs);
                     let rhs_result = self.traverse_terms_inner(&mut context.clone(), cache, rhs);
                     let result = match op {
-                        Operation::add => lhs_result.unwrap() + rhs_result.unwrap(),
-                        Operation::subtract => lhs_result.unwrap() - rhs_result.unwrap(),
+                        Operation::Addition => lhs_result.unwrap() + rhs_result.unwrap(),
+                        Operation::Subtraction => lhs_result.unwrap() - rhs_result.unwrap(),
                         _ => Value::Empty,
                     };
                     Some(result)
                 },
-                Term::set_variable(name) => {
+                Term::SetVariable(name) => {
                     cache.variables
                         .insert(name.to_string(), self.identity(context));
                     context.identity.take()
                 },
-                Term::get_variable(name) => {
+                Term::GetVariable(name) => {
                     Some(cache.variables.get(name).unwrap_or(&Value::Empty).clone())
                 },
-                Term::reduce(outer_terms, init, terms) => {
+                Term::Reduce(outer_terms, init, terms) => {
                     // search for variables
                     let vars: Vec<&String> = outer_terms
                         .iter()
                         .filter_map(|term| match term {
-                            Term::set_variable(variable) => Some(variable),
+                            Term::SetVariable(variable) => Some(variable),
                             _ => None,
                         })
                         .collect();
@@ -221,13 +221,13 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
 
                     Some(result)
                 },
-                Term::map(terms) => {
+                Term::Map(terms) => {
                     let result = iterate(self.to_iterable(context, cache), |v| {
                         Some(self.traverse(&mut context.clone_value(Some(v)), cache, terms))
                     });
                     Some(result)
                 },
-                Term::object(obj_terms) => {
+                Term::ObjectConstruction(obj_terms) => {
                     if let Some(value) = context.identity.take() {
                         Some(iterate(value, |v| {
                             let output = self.traverse(&mut context.clone_value(Some(v)), cache, obj_terms);
@@ -238,7 +238,7 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                         Some(Value::Object(Box::new(output)))
                     }
                 },
-                Term::kv(key, value_terms) => {
+                Term::KeyValue(key, value_terms) => {
                     let key = self.traverse(&mut context.clone(), cache, &[*key.clone()]);
                     let result = self.traverse(&mut context.clone(), cache, &value_terms.to_vec());
                     trace!("Term::kv result: {:?} {:?}", key, result);
@@ -249,7 +249,7 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                         }
                     }
                 },
-                Term::identity => {
+                Term::Identity => {
                     if context.current_file.is_none() && context.identity.is_none() {
                         if self.store.is_none() {
                             return Some(Value::Empty);
@@ -271,8 +271,8 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                     } else {
                         context.identity.take()
                     }
-                },
-                Term::array(arr_terms) => {
+                }
+                Term::ArrayConstruction(arr_terms) => {
                     let result = self.traverse(context, cache, &arr_terms.to_vec());
                     match result {
                         Value::Empty => Some(Value::List(Vec::with_capacity(0))),
@@ -280,7 +280,7 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                         one_element => Some(Value::List(vec![one_element])),
                     }
                 },
-                Term::length => match context.identity() {
+                Term::Length => match context.identity() {
                     Value::Str(string) => Some(Value::U64(string.chars().count() as u64)),
                     Value::List(list) => Some(Value::U64(list.len() as u64)),
                     Value::Iterator(iterable) => Some(Value::U64(iterable.len() as u64)),
@@ -293,7 +293,7 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                     Value::Empty => Some(Value::U64(0)),
                     value => unimplemented!("Unsupported type '{:?}' for 'length' operation", value)
                 },
-                Term::keys => match context.identity() {
+                Term::Keys => match context.identity() {
                     Value::Object(data) => {
                         match *data {
                             Value::List(pairs) => {
@@ -313,13 +313,13 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                     }
                     value => unimplemented!("Unsupported type '{:?}' for 'keys' operation", value)
                 },
-                Term::key(terms) => {
+                Term::Key(terms) => {
                     self.traverse_terms_inner(context, cache, terms)
                 },
-                Term::string(text) => {
+                Term::StringLiteral(text) => {
                     Some(Value::Str(text.to_string()))
                 },
-                Term::transpose => match context.identity() {
+                Term::Transpose => match context.identity() {
                     Value::List(values) => {
                         trace!("transpose input {:?}", values);
 
@@ -351,10 +351,10 @@ impl<'a> Traverse<'a> for StaticContext<'a> {
                         process::exit(-1);
                     },
                 },
-                Term::unsigned_number(value) => {
+                Term::UnsignedNumber(value) => {
                     Some(Value::U64(*value))
                 },
-                Term::signed_number(value) => {
+                Term::SignedNumber(value) => {
                     Some(Value::I64(*value))
                 },
                 _ => Some(self.traverse_term(context, cache, term))

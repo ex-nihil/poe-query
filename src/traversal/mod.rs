@@ -4,7 +4,9 @@ pub mod value;
 mod traverse;
 mod utils;
 
-pub trait TermsProcessor {
+// TODO:
+//  Consider splitting QueryProcessor trait into multiple traits that each define a specific behavior or capability, such as DataAccessor, DataTransformer, or DataAggregator.
+pub trait QueryProcessor {
     fn process(&self, terms: &[Term]) -> value::Value;
 }
 

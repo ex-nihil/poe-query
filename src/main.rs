@@ -13,7 +13,7 @@ use simplelog::*;
 
 use crate::dat::DatReader;
 use crate::query::Term;
-use crate::traversal::{StaticContext, TermsProcessor};
+use crate::traversal::{StaticContext, QueryProcessor};
 use crate::traversal::value::Value;
 
 mod dat;
@@ -51,7 +51,13 @@ fn main() {
 
     // Parse
     let now = Instant::now();
-    let terms = query::parse(&args.query);
+    let terms = match query::parse_query(&args.query) {
+        Ok(t) => t,
+        Err(error) => {
+            error!("{}", error);
+            process::exit(-1);
+        },
+    };
     let (parse_query_ms, now) = (now.elapsed().as_millis(), Instant::now());
 
     // Index bundles

@@ -1,281 +1,232 @@
-use pest::Parser;
 use std::fmt::Debug;
+use std::process;
+
 use log::{debug, error, trace};
+use pest::error::LineColLocation;
+use pest::Parser;
 
 #[derive(Parser)]
 #[grammar = "query/grammar.pest"]
 struct PluckParser;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-#[allow(non_camel_case_types)]
 pub enum Term {
-    by_name(String),
-    kv_by_name(String),
-    by_index(usize),
-    by_index_reverse(usize),
-    slice(i64, i64),
-    kv(Box<Term>, Vec<Term>),
-    object(Vec<Term>),
-    bool(bool),
-    array(Vec<Term>),
-    select(Vec<Term>, Option<Compare>, Vec<Term>),
-    calculate(Vec<Term>, Operation, Vec<Term>),
-    iterator,
-    string(String),
-    key(Vec<Term>),
-    set_variable(String),
-    get_variable(String),
-    contains(Vec<Term>),
-    unsigned_number(u64),
-    reduce(Vec<Term>, Vec<Term>, Vec<Term>),
-    map(Vec<Term>),
-    signed_number(i64),
-    transpose,
-    identity,
-    comma,
-    length,
-    keys,
-    noop,
-    _pipe,
-    _equal,
+    LookupByName(String),
+    LookupKeyValueByName(String),
+    LookupByIndex(usize),
+    ByIndexReverse(usize),
+    SliceData(i64, i64),
+    KeyValue(Box<Term>, Vec<Term>),
+    ObjectConstruction(Vec<Term>),
+    BoolLiteral(bool),
+    ArrayConstruction(Vec<Term>),
+    Select(Vec<Term>, Option<Compare>, Vec<Term>),
+    Calculate(Vec<Term>, Operation, Vec<Term>),
+    Iterator,
+    StringLiteral(String),
+    Key(Vec<Term>),
+    SetVariable(String),
+    GetVariable(String),
+    Contains(Vec<Term>),
+    UnsignedNumber(u64),
+    Reduce(Vec<Term>, Vec<Term>, Vec<Term>),
+    Map(Vec<Term>),
+    SignedNumber(i64),
+    Transpose,
+    Identity,
+    CommaSeparator,
+    Length,
+    Keys,
+    NoOperation,
+    _PipeOperator,
+    _Equal,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-#[allow(non_camel_case_types)]
 pub enum Compare {
-    equals,
-    not_equals,
-    less_than,
-    greater_than,
-    less_than_eq,
-    greater_than_eq,
+    Equals,
+    NotEquals,
+    LessThan,
+    GreaterThan,
+    LessThanEq,
+    GreaterThanEq,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-#[allow(non_camel_case_types)]
 pub enum Operation {
-    add,
-    subtract,
-    multiply,
-    divide,
+    Addition,
+    Subtraction,
+    Multiplication,
+    Division,
 }
 
-pub fn parse(source: &str) -> Vec<Term> {
-    let result = PluckParser::parse(Rule::program, source);
-    let pairs = match result {
+pub fn parse_query(source: &str) -> Result<Vec<Term>, String> {
+    let pairs = match PluckParser::parse(Rule::program, source) {
         Ok(pairs) => pairs,
-        Err(err) => {
-            error!("Fail parsing grammar. {}", err);
-            return vec![];
+        Err(error) => {
+            let parse_error = match error.line_col {
+                LineColLocation::Pos((line, column)) =>
+                    format!("Error parsing grammar at line {}, column {}. {}", line, column, error),
+                LineColLocation::Span((line, column), (line_to, column_to)) =>
+                    format!("Error parsing grammar at line {}, column {} to line {}, column {}. {}", line, column, line_to, column_to, error),
+            };
+            return Err(parse_error);
         }
     };
 
-    let mut output = Vec::new();
-    for pair in pairs {
-        build_ast(pair, &mut output);
-    }
-    debug!("Query Terms: {:?}", output);
-    output
+    let terms = pairs.into_iter()
+        .flat_map(build_ast)
+        .collect::<Vec<_>>();
+
+    debug!("Query terms: {:?}", terms);
+    Ok(terms)
 }
 
-// TODO: this is getting very unwieldy, refactor to something more ergonomic?
-fn build_ast(pair: pest::iterators::Pair<Rule>, dst: &mut Vec<Term>) {
-    trace!("{:?}", pair.as_rule());
+fn build_ast(pair: pest::iterators::Pair<Rule>) -> Vec<Term> {
+    trace!("pair: {:?}", pair);
+
     match pair.as_rule() {
         Rule::multiple_terms => {
-            let inner = pair.into_inner();
-            for inner_term in inner {
-                build_ast(inner_term, dst);
-            }
+            pair.into_inner().into_iter()
+                .flat_map(build_ast)
+                .collect::<Vec<_>>()
         }
         Rule::calculation => {
-            let inner = pair.into_inner();
-            let mut lhs = Vec::new();
-            let mut rhs = Vec::new();
-            let mut current = &mut lhs;
+            let mut left_operand = Vec::new();
+            let mut right_operand = Vec::new();
+            let mut current = &mut left_operand;
             let mut operation = None;
-            for next in inner {
+            for next in pair.into_inner() {
                 match next.as_rule() {
                     Rule::operation => {
                         operation = match next.into_inner().next().unwrap().as_rule() {
-                            Rule::add => Some(Operation::add),
-                            Rule::subtract => Some(Operation::subtract),
-                            Rule::multiply => Some(Operation::multiply),
-                            Rule::divide => Some(Operation::divide),
-                            _ => panic!("Unimplemented operation"),
+                            Rule::add => Some(Operation::Addition),
+                            Rule::subtract => Some(Operation::Subtraction),
+                            Rule::multiply => Some(Operation::Multiplication),
+                            Rule::divide => Some(Operation::Division),
+                            rule => {
+                                error!("Unexpected rule '{:?}'. Expected math operation.", rule);
+                                process::exit(-1);
+                            }
                         };
-                        current = &mut rhs;
+                        current = &mut right_operand;
                     }
-                    _ => {
-                        build_ast(next, current);
-                    },
+                    _ => current.append(&mut build_ast(next)),
                 }
             }
-            if let Some(op) = operation {
-                dst.push(Term::calculate(lhs, op, rhs));
-            } else {
-                for t in lhs {
-                    dst.push(t)
-                }
-            }
-        }
-        Rule::zip_to_obj => {
-            let instructions = vec![
-                Term::transpose, 
-                Term::map(vec![
-                    Term::object(vec![
-                        Term::kv(Box::new(Term::key(vec![Term::by_index(0)])), vec![Term::by_index(1)])
-                    ])
-                ]),
-                Term::reduce(
-                    vec![
-                        Term::identity,
-                        Term::iterator,
-                        Term::set_variable("item".to_string()),
-                    ],
-                    vec![Term::object(vec![])],
-                    vec![
-                        Term::calculate(
-                            vec![Term::identity],
-                            Operation::add,
-                            vec![Term::get_variable("item".to_string())]
-                        )
-                    ]
-                ),
-            ];
-            for t in instructions {
-                dst.push(t)
-            }
-        }
-        Rule::reduce => {
-            let inner = pair.into_inner();
 
-            let mut initial = Vec::new();
-            let mut inner_terms = Vec::new();
-            let mut outer_terms = Vec::new();
-            let mut current = &mut outer_terms;
-            for next in inner {
-                match next.as_rule() {
-                    Rule::reduce_init_value => {
-                        current = &mut inner_terms;
-                        build_ast(next.into_inner().next().unwrap(), &mut initial);
-                    }
-                    _ => {
-                        build_ast(next, current);
-                    }
-                }
+            match (operation, left_operand, right_operand) {
+                (None, lhs, _) => lhs,
+                (Some(op), lhs, rhs) =>
+                    vec![Term::Calculate(lhs, op, rhs)]
             }
-            dst.push(Term::reduce(outer_terms, initial, inner_terms));
         }
-        Rule::map => {
-            let inner = pair.into_inner();
-
-            let mut terms = Vec::new();
-            for next in inner {
-                build_ast(next, &mut terms);
-            }
-            dst.push(Term::map(terms));
-        }
-        Rule::object_construct => {
-            let inner = pair.into_inner();
-            let mut object_terms = Vec::new();
-            for pair in inner {
-                match pair.as_rule() {
-                    Rule::comma => object_terms.push(to_term(pair)),
-                    Rule::kv_by_field => object_terms.push(to_term(pair)),
-                    Rule::key_value => {
-                        let content = pair.into_inner();
-                        let mut kv_terms = Vec::new();
-                        for next in content {
-                            build_ast(next, &mut kv_terms);
-                        }
-                        let key = kv_terms.first().unwrap();
-                        object_terms.push(Term::kv(Box::new(key.clone()), kv_terms[1..].to_vec()));
-                    }
-                    rule => unimplemented!("Unknown rule '{:?}' in object construction ", rule)
-                }
-            }
-            dst.push(Term::object(object_terms))
-        },
-        _ => {
-            dst.push(to_term(pair));
-        },
+        Rule::zip_to_obj => zip_to_object_terms(),
+        _ => vec![to_term(pair)]
     }
+}
+
+fn zip_to_object_terms() -> Vec<Term> {
+    vec![
+        Term::Transpose,
+        Term::Map(vec![
+            Term::ObjectConstruction(vec![
+                Term::KeyValue(Box::new(Term::Key(vec![Term::LookupByIndex(0)])), vec![Term::LookupByIndex(1)])
+            ])
+        ]),
+        Term::Reduce(
+            vec![
+                Term::Identity,
+                Term::Iterator,
+                Term::SetVariable("item".to_string()),
+            ],
+            vec![Term::ObjectConstruction(vec![])],
+            vec![
+                Term::Calculate(
+                    vec![Term::Identity],
+                    Operation::Addition,
+                    vec![Term::GetVariable("item".to_string())],
+                )
+            ],
+        ),
+    ]
 }
 
 fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
     trace!("{:?}", pair.as_rule());
     match pair.as_rule() {
+        Rule::EOI => Term::NoOperation,
         Rule::pipe => {
-            //Term::pipe
-            Term::noop
-        },
-        Rule::field => {
-            let ident = pair.as_span().as_str().to_string();
-            Term::by_name(ident)
+            // Should be Term::pipe, but as of now, the traversal does not need it for anything
+            Term::NoOperation
         }
-        Rule::kv_by_field => {
-            let ident = pair.as_span().as_str().to_string();
-            Term::kv_by_name(ident)
-        }
-        Rule::string => {
-            let text = pair.as_span().as_str().to_string();
-            Term::string(text)
-        }
-        Rule::identifier => {
-            let text = pair.as_span().as_str().to_string();
-            Term::string(text)
-        }
+        Rule::iterator => Term::Iterator,
+        Rule::identity => Term::Identity,
+        Rule::comma => Term::CommaSeparator,
+        Rule::length => Term::Length,
+        Rule::keys => Term::Keys,
+        Rule::transpose => Term::Transpose,
+        Rule::field => Term::LookupByName(pair.as_span().as_str().to_string()),
+        Rule::kv_by_field => Term::LookupKeyValueByName(pair.as_span().as_str().to_string()),
+        Rule::string => Term::StringLiteral(pair.as_span().as_str().to_string()),
+        Rule::identifier => Term::StringLiteral(pair.as_span().as_str().to_string()),
+
         Rule::assign_variable => {
             let mut inner = pair.into_inner();
             let text = inner.next().unwrap().into_inner().as_str();
-            Term::set_variable(text.to_string())
+            Term::SetVariable(text.to_string())
         }
         Rule::variable => {
             let mut inner = pair.into_inner();
             let text = inner.next().unwrap().as_str();
-            Term::get_variable(text.to_string())
+            Term::GetVariable(text.to_string())
         }
         Rule::key => {
             let inner = pair.into_inner();
-            let mut terms = Vec::new();
-            for next in inner {
-                build_ast(next, &mut terms);
-            }
-            Term::key(terms)
+            let terms = inner.into_iter()
+                .flat_map(build_ast)
+                .collect::<Vec<_>>();
+            Term::Key(terms)
         }
         Rule::index => {
             let ident = pair.into_inner().next().unwrap().as_str();
             let index = ident.parse::<i64>().unwrap();
             if index < 0 {
-                Term::by_index_reverse(-index as usize)
+                Term::ByIndexReverse(-index as usize)
             } else {
-                Term::by_index(index as usize)
+                Term::LookupByIndex(index as usize)
             }
         }
-        Rule::iterator => Term::iterator,
+        Rule::map => {
+            let inner = pair.into_inner();
+            let terms = inner.into_iter()
+                .flat_map(build_ast)
+                .collect::<Vec<_>>();
+            Term::Map(terms)
+        }
         Rule::signed_number => {
             let mut inner = pair.into_inner();
-            if let Some(next) = inner.next() {
-                match next.as_rule() {
-                    Rule::minus => {
-                        let value_string = inner.next().unwrap().as_str();
-                        let value = value_string.parse::<i64>().unwrap();
-                        Term::signed_number(-value)
-                    }
-                    _ => {
-                        let value = next.as_str().parse::<i64>().unwrap();
-                        Term::signed_number(value)
-                    }
+            let Some(next) = inner.next() else {
+                error!("Parsing failed Rule::signed_number. This is a bug in the language spec.");
+                process::exit(-1);
+            };
+
+            match next.as_rule() {
+                Rule::minus => {
+                    let value_string = inner.next().unwrap().as_str();
+                    let value = value_string.parse::<i64>().unwrap();
+                    Term::SignedNumber(-value)
                 }
-            } else {
-                panic!("Parsing failed Rule::signed_number. This is a bug in the language spec.");
+                _ => {
+                    let value = next.as_str().parse::<i64>().unwrap();
+                    Term::SignedNumber(value)
+                }
             }
         }
         Rule::unsigned_number => {
             let next = pair.into_inner().next().unwrap();
             let value = next.as_str().parse::<u64>().unwrap();
-            Term::unsigned_number(value)
+            Term::UnsignedNumber(value)
         }
         Rule::select => {
             let inner = pair.into_inner();
@@ -287,32 +238,35 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
                 match next.as_rule() {
                     Rule::bool_constant => {
                         let bool = match next.into_inner().next().unwrap().as_rule() {
-                            Rule::TRUE => Term::bool(true),
-                            _ => Term::bool(false),
+                            Rule::TRUE => Term::BoolLiteral(true),
+                            _ => Term::BoolLiteral(false),
                         };
-                        return Term::select(vec![bool], None, vec![]);
+                        return Term::Select(vec![bool], None, vec![]);
                     }
                     Rule::compare => {
                         comparison = match next.into_inner().next().unwrap().as_rule() {
-                            Rule::equal => Some(Compare::equals),
-                            Rule::not_equal => Some(Compare::not_equals),
-                            Rule::less_than => Some(Compare::less_than),
-                            Rule::greater_than => Some(Compare::greater_than),
-                            Rule::less_than_eq => Some(Compare::less_than_eq),
-                            Rule::greater_than_eq => Some(Compare::greater_than_eq),
-                            p => panic!("Operation not implemented: {:?}", p),
+                            Rule::equal => Some(Compare::Equals),
+                            Rule::not_equal => Some(Compare::NotEquals),
+                            Rule::less_than => Some(Compare::LessThan),
+                            Rule::greater_than => Some(Compare::GreaterThan),
+                            Rule::less_than_eq => Some(Compare::LessThanEq),
+                            Rule::greater_than_eq => Some(Compare::GreaterThanEq),
+                            rule => {
+                                error!("Unexpected rule '{:?}'. Expected comparison operation.", rule);
+                                process::exit(-1);
+                            }
                         };
                         current = &mut rhs;
                     }
                     _ => current.push(to_term(next)),
                 }
             }
-            Term::select(lhs, comparison, rhs)
+            Term::Select(lhs, comparison, rhs)
         }
         Rule::contains => {
             let inner = pair.into_inner();
             let inner_terms: Vec<_> = inner.map(to_term).collect();
-            Term::contains(inner_terms)
+            Term::Contains(inner_terms)
         }
         Rule::slice => {
             let mut inner = pair.into_inner();
@@ -336,25 +290,60 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
                     _ => {}
                 }
             }
-            Term::slice(from, to)
+            Term::SliceData(from, to)
         }
-        Rule::identity => Term::identity,
-        Rule::comma => Term::comma,
-        Rule::length => Term::length,
-        Rule::keys => Term::keys,
-        Rule::transpose => Term::transpose,
         Rule::array_construction => {
             let content = pair.into_inner();
             let mut items = Vec::new();
             for next in content {
                 items.push(to_term(next));
             }
-            Term::array(items)
+            Term::ArrayConstruction(items)
         }
-        Rule::EOI => Term::noop,
-        _ => {
-            println!("UNHANDLED: {}", pair);
-            Term::noop
+        Rule::object_construct => {
+            let inner = pair.into_inner();
+            let mut object_terms = Vec::new();
+            for pair in inner {
+                match pair.as_rule() {
+                    Rule::comma => object_terms.push(to_term(pair)),
+                    Rule::kv_by_field => object_terms.push(to_term(pair)),
+                    Rule::key_value => {
+                        let content = pair.into_inner();
+                        let terms = content.into_iter()
+                            .flat_map(build_ast)
+                            .collect::<Vec<_>>();
+                        let key = terms.first().unwrap();
+                        object_terms.push(Term::KeyValue(Box::new(key.clone()), terms[1..].to_vec()));
+                    }
+                    rule => {
+                        error!("Unexpected rule '{:?}' during object construction ", rule);
+                        process::exit(-1);
+                    }
+                }
+            }
+            Term::ObjectConstruction(object_terms)
+        }
+        Rule::reduce => {
+            let inner = pair.into_inner();
+
+            let mut initial = Vec::new();
+            let mut inner_terms = Vec::new();
+            let mut outer_terms = Vec::new();
+            let mut current = &mut outer_terms;
+            for next in inner {
+                match next.as_rule() {
+                    Rule::reduce_init_value => {
+                        current = &mut inner_terms;
+                        initial.append(&mut build_ast(next.into_inner().next().unwrap()));
+                    }
+                    _ => current.append(&mut build_ast(next.into_inner().next().unwrap()))
+                }
+            }
+            Term::Reduce(outer_terms, initial, inner_terms)
+        }
+        unexpected_rule => {
+            error!("Rule from language spec not implemented: {:?}", unexpected_rule);
+            process::exit(-1);
         }
     }
 }
