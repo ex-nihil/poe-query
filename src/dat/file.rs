@@ -75,8 +75,9 @@ impl DatFile {
 
     pub fn check_offset(&self, offset: usize) {
         if offset > self.total_size {
-            error!("Attempt to read outside DAT. This is a bug or the file is corrupted.");
-            error!("{} - offset: {} size: {}", self.name, offset, self.total_size);
+            error!("Attempt to read outside the file {}. Offset {}, Size {}", self.name, offset, self.total_size);
+            error!("This is most likely a bug or an incorrect specification. It is also possible that the DAT file is corrupted.");
+            error!("You can report the error here: https://github.com/ex-nihil/poe-query/issues");
             process::exit(-1);
         }
     }
