@@ -262,7 +262,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                                 let spec = self.store.unwrap().spec_by_export(export).unwrap();
 
                                 Value::KeyValue(
-                                    Box::new(Value::Str(spec.filename.to_string())),
+                                    Box::new(Value::Str(spec.file_name.to_string())),
                                     Box::new(Value::List(vec![])),
                                 )
                             })
@@ -373,16 +373,16 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
         self.enter_foreign(context, cache);
         if let (Some(spec), None)  = (spec, &context.current_file) {
             // generate initial values
-            let file = cache.files.entry(spec.filename.to_string()).or_insert_with(|| self.store.unwrap().file_by_filename(&spec.filename).unwrap());
+            let file = cache.files.entry(spec.file_name.to_string()).or_insert_with(|| self.store.unwrap().file_by_filename(&spec.file_name).unwrap());
 
             let values: Vec<Value> = (0..file.rows_count)
                 .map(|i| {
                     let kv_list: Vec<Value> = spec
-                        .fields
+                        .file_fields
                         .iter()
                         .map(|field| {
                             Value::KeyValue(
-                                Box::new(Value::Str(field.name.clone())),
+                                Box::new(Value::Str(field.field_name.clone())),
                                 Box::new(file.read_field(i as u64, field)),
                             )
                         })
@@ -392,7 +392,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                 .collect();
 
             context.current_field = None;
-            context.current_file = Some(spec.filename.to_string());
+            context.current_file = Some(spec.file_name.to_string());
             context.identity = Some(Value::List(values));
         } else {
             context.current_field = Some(name.to_string());
@@ -595,11 +595,11 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
 
                 // TODO: extract to function
                 let kv_list: Vec<Value> = spec
-                    .fields
+                    .file_fields
                     .iter()
                     .map(move |field| {
                         Value::KeyValue(
-                            Box::new(Value::Str(field.name.clone())),
+                            Box::new(Value::Str(field.field_name.clone())),
                             Box::new(file.read_field(i, field)),
                         )
                     })
@@ -621,9 +621,9 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
             .and_then(|file| self.store.unwrap().spec(file));
         let current_field = current_spec
             .and_then(|spec| {
-                spec.fields.iter().find(|&field| {
+                spec.file_fields.iter().find(|&field| {
                     context.current_field.is_some()
-                        && context.current_field.clone().unwrap() == field.name
+                        && context.current_field.clone().unwrap() == field.field_name
                 })
             });
 
@@ -631,7 +631,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
             trace!("enter_foreign on field {:?}", current_field);
             context.current_field = None;
 
-            let fk_name = &current_field.file.as_ref().unwrap();
+            let fk_name = &current_field.file_name.as_ref().unwrap();
             let foreign_spec = self.store.unwrap().spec(fk_name).unwrap();
 
             let value = context.identity();
@@ -662,12 +662,12 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                     })
                     .collect();
 
-                let rows = self.rows_from(cache, current_field.file.as_ref().unwrap(), ids.as_slice());
+                let rows = self.rows_from(cache, current_field.file_name.as_ref().unwrap(), ids.as_slice());
                 Some(rows)
             });
 
             context.current_field = None;
-            context.current_file = Some(foreign_spec.filename.clone());
+            context.current_file = Some(foreign_spec.file_name.clone());
             context.identity = Some(result);
         }
     }
@@ -681,11 +681,11 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
             .iter()
             .map(|i| {
                 let kv_list: Vec<Value> = foreign_spec
-                    .fields
+                    .file_fields
                     .iter()
                     .map(|field| {
                         Value::KeyValue(
-                            Box::new(Value::Str(field.name.clone())),
+                            Box::new(Value::Str(field.field_name.clone())),
                             Box::new(file.read_field(*i, field)),
                         )
                     })

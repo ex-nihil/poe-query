@@ -8,61 +8,59 @@ use serde::Deserialize;
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Clone)]
 pub struct FileSpec {
-    pub filename: String,
-    pub fields: Vec<FieldSpec>
+    pub file_name: String,
+    pub file_fields: Vec<FieldSpec>,
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Clone)]
 pub struct EnumSpec {
-    name: String,
+    enum_name: String,
     first_index: usize,
-    values: Vec<String>,
+    enum_values: Vec<String>,
 }
 
 impl EnumSpec {
     pub fn value(&self, index: usize) -> String {
-        self.values.get(index - self.first_index).unwrap_or(&"".to_string()).to_string()
+        self.enum_values.get(index - self.first_index)
+            .unwrap_or(&"".to_string()).to_string()
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Clone)]
 pub struct FieldSpec {
-    pub name: String,
-    pub datatype: String,
-    pub file: Option<String>,
+    pub field_name: String,
+    pub field_type: String,
+    pub file_name: Option<String>,
     pub enum_name: Option<EnumSpec>,
-    pub offset: u64,
+    pub field_offset: u64,
 }
 
 impl fmt::Display for FieldSpec {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}({})", self.name, self.datatype)
+        write!(f, "{}({})", self.field_name, self.field_type)
     }
 }
 
 impl FileSpec {
-
-    pub fn read_all_enum_specs(path: &Path) -> HashMap<String, EnumSpec> {
+    pub fn read_enum_specs(path: &Path) -> HashMap<String, EnumSpec> {
         use apollo_parser::Parser;
         use apollo_parser::ast::Definition;
 
-        let mut enum_specs: HashMap<_, _> = HashMap::new();
+        std::fs::read_dir(path).expect("spec path does not exist")
+            .filter_map(|directory| directory.ok().map(|entry| entry.path()))
+            .filter(|file_path| file_path.is_file() && file_path.extension().expect("gql file not found").to_string_lossy() == "gql")
+            .flat_map(|file_path| {
+                let text = std::fs::read_to_string(file_path).unwrap();
 
-        let paths = std::fs::read_dir(path).expect("spec path does not exist");
-        paths
-            .filter_map(Result::ok)
-            .map(|d| d.path())
-            .filter(|pb| pb.is_file() && pb.extension().expect("gql file not found").to_string_lossy() == "gql")
-            .for_each(|pb| {
-            let text = std::fs::read_to_string(pb).unwrap();
+                let parser = Parser::new(&text);
+                let ast = parser.parse();
 
-            let parser = Parser::new(&text);
-            let ast = parser.parse();
-
-            assert_eq!(ast.errors().len(), 0);
-            for def in ast.document().definitions() {
-                match def {
-                    Definition::ObjectTypeDefinition(_) => {}
+                assert_eq!(ast.errors().len(), 0);
+                ast.document().definitions()
+            })
+            .filter_map(|definition| {
+                match definition {
+                    Definition::ObjectTypeDefinition(_) => None,
                     Definition::EnumTypeDefinition(obj) => {
                         let enum_name = obj.name().unwrap().text();
 
@@ -79,43 +77,40 @@ impl FileSpec {
                             values.push(value.to_string())
                         }
 
-                        enum_specs.insert(enum_name.to_string(), EnumSpec {
-                            name: enum_name.to_string(),
-                            first_index: index,
-                            values
-                        });
-
+                        Some((
+                            enum_name.to_string(),
+                            EnumSpec {
+                                enum_name: enum_name.to_string(),
+                                first_index: index,
+                                enum_values: values,
+                            }
+                        ))
                     }
                     def => unimplemented!("Unhandled definition: {:?}", def),
                 }
-            }
-        });
-        enum_specs
+            }).collect::<HashMap<_, _>>()
     }
 
-    pub fn read_all_specs(path: &Path, enum_specs: &HashMap<String, EnumSpec>) -> HashMap<String, FileSpec> {
+    pub fn read_file_specs(path: &Path, enum_specs: &HashMap<String, EnumSpec>) -> HashMap<String, FileSpec> {
         use apollo_parser::Parser;
         use apollo_parser::ast::Definition;
         use apollo_parser::ast::Type;
 
-        let mut file_specs: HashMap<String, FileSpec> = HashMap::new();
+        std::fs::read_dir(path).expect("spec path does not exist")
+            .filter_map(|directory| directory.ok().map(|entry| entry.path()))
+            .filter(|file_path| file_path.is_file() && file_path.extension().expect("gql file not found").to_string_lossy() == "gql")
+            .flat_map(|file_path| {
+                let text = std::fs::read_to_string(file_path).unwrap();
 
-        let paths = std::fs::read_dir(path).expect("spec path does not exist");
-        paths
-            .filter_map(Result::ok)
-            .map(|d| d.path())
-            .filter(|pb| pb.is_file() && pb.extension().expect("gql file not found").to_string_lossy() == "gql")
-            .for_each(|pb| {
-            let text = std::fs::read_to_string(pb).unwrap();
+                let parser = Parser::new(&text);
+                let ast = parser.parse();
 
-            let parser = Parser::new(&text);
-            let ast = parser.parse();
-
-            assert_eq!(ast.errors().len(), 0);
-            for def in ast.document().definitions() {
-                match def {
+                assert_eq!(ast.errors().len(), 0);
+                ast.document().definitions()
+            })
+            .filter_map(|definition| {
+                match definition {
                     Definition::ObjectTypeDefinition(obj) => {
-
                         let filename = obj.name().unwrap().text().to_string();
                         let mut offset = 0;
 
@@ -125,7 +120,7 @@ impl FileSpec {
                             let name = field.name().unwrap().text();
 
                             let mut is_path_field = false;
-                            if let Some(field_directives)  = field.directives().map(|x| x.directives()) {
+                            if let Some(field_directives) = field.directives().map(|x| x.directives()) {
                                 for directive in field_directives {
                                     if directive.name().unwrap().text().as_str() == "file" {
                                         is_path_field = true;
@@ -146,12 +141,12 @@ impl FileSpec {
                                         _ => offset += 8,
                                     }
                                     spec_type
-                                },
+                                }
                                 Type::ListType(it) => {
                                     offset += 8;
                                     is_list = true;
                                     it.syntax().first_child().unwrap().text().to_string()
-                                },
+                                }
                                 node => unimplemented!("Unhandled node: {:?}", node),
                             };
 
@@ -189,30 +184,32 @@ impl FileSpec {
                             }
 
                             fields.push(FieldSpec {
-                                name: name.to_string(),
-                                datatype: type_value.to_string(),
-                                file: key_file,
+                                field_name: name.to_string(),
+                                field_type: type_value.to_string(),
+                                file_name: key_file,
                                 enum_name: enum_spec.cloned(),
-                                offset: current_offset
+                                field_offset: current_offset,
                             });
                         }
 
                         let spec = FileSpec {
-                            filename,
-                            fields
+                            file_name: filename,
+                            file_fields: fields,
                         };
-                        file_specs.insert(spec.filename.clone(), spec);
+
+                        Some((
+                            spec.file_name.clone(),
+                            spec
+                        ))
                     }
-                    Definition::EnumTypeDefinition(_) => {}
+                    Definition::EnumTypeDefinition(_) => None,
                     def => unimplemented!("Unhandled definition: {:?}", def),
                 }
-            }
-        });
-        file_specs
+            }).collect()
     }
 
     pub fn field_size(field: &FieldSpec) -> u64 {
-        let datatype = field.datatype.split('|').next().unwrap();
+        let datatype = field.field_type.split('|').next().unwrap();
         match datatype {
             "u64" | "i64" | "list" => 8,
             "bool" | "u8" => 1,
@@ -231,12 +228,12 @@ pub trait FieldSpecImpl {
 
 impl FieldSpecImpl for FieldSpec {
     fn is_foreign_key(&self) -> bool {
-        self.file.is_some()
+        self.file_name.is_some()
     }
 }
 
 impl FileSpecImpl for FileSpec {
     fn field(&self, key: &str) -> Option<&FieldSpec> {
-        self.fields.iter().find(|&f| f.name == key)
+        self.file_fields.iter().find(|&f| f.field_name == key)
     }
 }

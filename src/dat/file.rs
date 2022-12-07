@@ -71,17 +71,17 @@ impl DatFile {
     }
 
     pub fn valid(&self, spec: &FileSpec) {
-        let last_field = spec.fields.last();
+        let last_field = spec.file_fields.last();
         if let Some(field) = last_field {
-            let spec_row_size = (field.offset + FileSpec::field_size(field)) as usize;
+            let spec_row_size = (field.field_offset + FileSpec::field_size(field)) as usize;
             if self.row_size > spec_row_size {
-                warn!("Spec for '{}' missing {} bytes", spec.filename, self.row_size - spec_row_size);
+                warn!("Spec for '{}' missing {} bytes", spec.file_name, self.row_size - spec_row_size);
             }
             if spec_row_size > self.row_size {
-                warn!("Spec for '{}' overflows by {} bytes", spec.filename, spec_row_size - self.row_size);
+                warn!("Spec for '{}' overflows by {} bytes", spec.file_name, spec_row_size - self.row_size);
             }
         } else {
-            warn!("Spec for {} does not contain fields", spec.filename);
+            warn!("Spec for {} does not contain fields", spec.file_name);
         }
     }
 
@@ -95,9 +95,9 @@ impl DatFile {
 
     pub fn read_field(&self, row: u64, field: &FieldSpec) -> Value {
         let row_offset = self.rows_begin + row as usize * self.row_size;
-        let exact_offset = row_offset + field.offset as usize;
+        let exact_offset = row_offset + field.field_offset as usize;
 
-        if field.offset as usize > self.row_size {
+        if field.field_offset as usize > self.row_size {
             // Spec describes more data than is in the row
             return Value::Empty;
         }
@@ -105,7 +105,7 @@ impl DatFile {
         let mut c = Cursor::new(&self.bytes[exact_offset..]);
 
 
-        let mut parts = field.datatype.split('|');
+        let mut parts = field.field_type.split('|');
         let prefix = parts.next();
         let result = if let Some(enum_spec) = &field.enum_name {
             match c.u32() {
@@ -127,7 +127,7 @@ impl DatFile {
                 x => panic!("reading {} from row {} - got {:?}", field, row, x)
             }
         } else {
-            c.read_value(field.datatype.as_str())
+            c.read_value(field.field_type.as_str())
         };
         debug!("Result {}[{}] = {:?}", field, row, result);
         result

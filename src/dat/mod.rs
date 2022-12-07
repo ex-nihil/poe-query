@@ -20,8 +20,8 @@ pub struct DatReader<'a> {
 impl<'a> DatReader<'a> {
 
     pub fn from_install(language: &'a str, bundles: &'a BundleReader, spec_path: &Path) -> DatReader<'a> {
-        let enums = FileSpec::read_all_enum_specs(spec_path);
-        let specs = FileSpec::read_all_specs(spec_path, &enums);
+        let enums = FileSpec::read_enum_specs(spec_path);
+        let specs = FileSpec::read_file_specs(spec_path, &enums);
 
         DatReader {
             language,
@@ -50,7 +50,7 @@ pub trait DatStoreImpl<'a> {
 
 impl<'a> DatStoreImpl<'a> for DatReader<'a> {
     fn file(&self, spec: &FileSpec) -> Option<DatFile> {
-        let path = self.get_filepath(&spec.filename);
+        let path = self.get_filepath(&spec.file_name);
         info!("Unpacking {}", path);
         let Ok(bytes) = self.bundle_reader.bytes(&path) else { return None };
 
@@ -75,11 +75,11 @@ impl<'a> DatStoreImpl<'a> for DatReader<'a> {
     }
 
     fn spec_by_export(&self, export: &str) -> Option<&FileSpec> {
-        self.specs.values().find(|s| s.filename == export)
+        self.specs.values().find(|s| s.file_name == export)
     }
 
     fn exports(&self) -> HashSet<&str> {
-        self.specs.iter().map(|(_, s)| s.filename.as_str()).collect()
+        self.specs.iter().map(|(_, s)| s.file_name.as_str()).collect()
     }
 
     fn enum_name(&self, path: &str) -> Option<&EnumSpec> {
