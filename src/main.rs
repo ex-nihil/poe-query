@@ -19,7 +19,6 @@ use crate::traversal::value::Value;
 mod dat;
 mod query;
 mod traversal;
-mod tests;
 
 #[derive(clap::Parser)]
 #[command(name = "PoE Query")]
