@@ -6,30 +6,22 @@ pub fn iterate<F>(value: Value, mut action: F) -> Value
 {
     match value {
         Value::Iterator(elements) => {
-            let mut list = Vec::new();
-            for e in elements {
-                if let Some(v) = action(e) {
-                    list.push(v);
-                }
-            }
+            let list = elements.into_iter()
+                .filter_map(action)
+                .collect();
             Value::List(list)
-        },
-        v => action(v).expect("non-iterable must return something"),
+        }
+        _ => action(value).expect("non-iterable must return something"),
     }
 }
 
-pub fn reduce<F>(initial: Value, action: &mut F) -> Value
+pub fn reduce<F>(initial: Value, mut action: F) -> Value
     where
         F: FnMut(Value, Value) -> Value,
 {
     match initial {
-        Value::Iterator(elements) => {
-            elements.into_iter().reduce(|accum, item| {
-                action(accum, item)
-            }).unwrap_or(Value::Empty)
-        }
-        _ => {
-            action(Value::Empty, initial)
-        }
+        Value::Iterator(elements) =>
+            elements.into_iter().reduce(action).unwrap_or(Value::Empty),
+        _ => action(Value::Empty, initial)
     }
 }
