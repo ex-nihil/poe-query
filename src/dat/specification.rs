@@ -32,7 +32,7 @@ pub struct FieldSpec {
     pub field_type: String,
     pub file_name: Option<String>,
     pub enum_name: Option<EnumSpec>,
-    pub field_offset: u64,
+    pub field_offset: usize,
 }
 
 impl fmt::Display for FieldSpec {
@@ -208,7 +208,7 @@ impl FileSpec {
             }).collect()
     }
 
-    pub fn field_size(field: &FieldSpec) -> u64 {
+    pub fn field_size(field: &FieldSpec) -> usize {
         let datatype = field.field_type.split('|').next().unwrap();
         match datatype {
             "u64" | "i64" | "list" => 8,

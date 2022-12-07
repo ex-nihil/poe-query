@@ -10,7 +10,7 @@ use super::specification::FieldSpec;
 use super::specification::FileSpec;
 use super::util;
 
-const DATA_SECTION_START: &[u8; 8] = &[0xBB; 8];
+const DATA_SECTION_MARKER: &[u8; 8] = &[0xBB; 8];
 
 pub struct DatFile {
     pub name: String,
@@ -28,31 +28,19 @@ impl std::fmt::Debug for DatFile {
     }
 }
 
-const EMPTY_DAT: DatFile = DatFile {
-    name: String::new(),
-    total_size: 0,
-    bytes: vec![],
-    rows_begin: 0,
-    data_section: 0,
-    rows_count: 0,
-    row_size: 0
-};
-
 impl DatFile {
 
-    pub fn from_bytes(name: String, bytes: Vec<u8>) -> DatFile {
+    pub fn from_bytes(name: String, bytes: Vec<u8>) -> Result<DatFile, (String, String)> {
         if bytes.is_empty() {
-            panic!("bytes was empty");
+            return Err((name, "No data provided to read the file from".to_string()));
         }
-        let mut c = Cursor::new(&bytes);
-        let rows_count = c.read_u32::<LittleEndian>().unwrap();
-        if rows_count == 0 {
-            warn!("DAT file is empty");
-            return EMPTY_DAT;
-        }
+        let mut cursor = Cursor::new(&bytes);
+        let Ok(rows_count) = cursor.read_u32::<LittleEndian>() else {
+            return Err((name, "DAT file is empty".to_string()));
+        };
 
         let rows_begin = 4;
-        let data_section = util::search_for(&bytes, DATA_SECTION_START);
+        let data_section = util::search_for(&bytes, DATA_SECTION_MARKER);
         let rows_total_size = data_section - rows_begin;
         let row_size = rows_total_size / rows_count as usize;
 
@@ -67,13 +55,13 @@ impl DatFile {
         };
 
         info!("Read {:?}", file);
-        file
+        Ok(file)
     }
 
     pub fn valid(&self, spec: &FileSpec) {
         let last_field = spec.file_fields.last();
         if let Some(field) = last_field {
-            let spec_row_size = (field.field_offset + FileSpec::field_size(field)) as usize;
+            let spec_row_size = field.field_offset + FileSpec::field_size(field);
             if self.row_size > spec_row_size {
                 warn!("Spec for '{}' missing {} bytes", spec.file_name, self.row_size - spec_row_size);
             }
@@ -95,39 +83,39 @@ impl DatFile {
 
     pub fn read_field(&self, row: u64, field: &FieldSpec) -> Value {
         let row_offset = self.rows_begin + row as usize * self.row_size;
-        let exact_offset = row_offset + field.field_offset as usize;
+        let exact_offset = row_offset + field.field_offset;
 
-        if field.field_offset as usize > self.row_size {
+        if field.field_offset > self.row_size {
             // Spec describes more data than is in the row
             return Value::Empty;
         }
 
-        let mut c = Cursor::new(&self.bytes[exact_offset..]);
+        let mut cursor = Cursor::new(&self.bytes[exact_offset..]);
 
 
         let mut parts = field.field_type.split('|');
         let prefix = parts.next();
         let result = if let Some(enum_spec) = &field.enum_name {
-            match c.u32() {
+            match cursor.u32() {
                 Value::U64(v) => Value::Str(enum_spec.value(v as usize)),
                 Value::Empty => Value::Empty,
                 x => panic!("reading {} from row {} - got {:?}", field, row, x)
             }
         } else if prefix.filter(|&dtype| "list" == dtype).is_some() {
-            let length = c.u32();
-            let offset = c.u32();
+            let length = cursor.u32();
+            let offset = cursor.u32();
             match (offset, length) {
                 (Value::U64(o), Value::U64(len)) => Value::List(self.read_list(o, len, parts.next().unwrap())),
                 _ => Value::Empty
             }
         } else if prefix.filter(|&dtype| "ref" == dtype).is_some() {
-            match c.u32() {
+            match cursor.u32() {
                 Value::U64(offset) => self.read_value(offset, parts.next().unwrap()),
                 Value::Empty => Value::Empty,
                 x => panic!("reading {} from row {} - got {:?}", field, row, x)
             }
         } else {
-            c.read_value(field.field_type.as_str())
+            cursor.read_value(field.field_type.as_str())
         };
         debug!("Result {}[{}] = {:?}", field, row, result);
         result
@@ -137,18 +125,18 @@ impl DatFile {
         let exact_offset = self.data_section + offset as usize;
         self.check_offset(exact_offset);
 
-        let mut c = Cursor::new(&self.bytes[exact_offset..]);
-        c.read_value(data_type)
+        let mut cursor = Cursor::new(&self.bytes[exact_offset..]);
+        cursor.read_value(data_type)
     }
 
     pub fn read_list(&self, offset: u64, len: u64, data_type: &str) -> Vec<Value> {
         let exact_offset = self.data_section + offset as usize;
         self.check_offset(exact_offset);
 
-        let mut c = Cursor::new(&self.bytes[exact_offset..]);
+        let mut cursor = Cursor::new(&self.bytes[exact_offset..]);
         (0..len).map(|_| {
             if data_type == "string" ||  data_type == "path" {
-                match c.u32() {
+                match cursor.u32() {
                     Value::U64(offset) => {
                         let mut text_cursor = Cursor::new(&self.bytes[(self.data_section + offset as usize)..]);
                         text_cursor.read_value(data_type)
@@ -156,7 +144,7 @@ impl DatFile {
                     _ => panic!("failed reading u32 offset")
                 }
             } else {
-                c.read_value(data_type)
+                cursor.read_value(data_type)
             }
         }).collect()
     }

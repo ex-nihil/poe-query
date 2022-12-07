@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use log::info;
+use log::{error, info};
 use poe_bundle::{BundleReader, BundleReaderRead};
 use crate::dat::file::DatFile;
 use crate::dat::specification::{EnumSpec, FileSpec};
@@ -54,10 +54,16 @@ impl<'a> DatStoreImpl<'a> for DatReader<'a> {
         info!("Unpacking {}", path);
         let Ok(bytes) = self.bundle_reader.bytes(&path) else { return None };
 
-        let file = DatFile::from_bytes(path, bytes);
-        file.valid(spec);
-
-        Some(file)
+        match DatFile::from_bytes(path, bytes) {
+            Ok(file) => {
+                file.valid(spec);
+                Some(file)
+            }
+            Err((file_path, error)) => {
+                error!("{} {}", file_path, error);
+                None
+            }
+        }
     }
 
     fn file_by_filename(&self, filename: &str) -> Option<DatFile> {
@@ -66,8 +72,7 @@ impl<'a> DatStoreImpl<'a> for DatReader<'a> {
         // TODO: remove unwrap() in poe_bundle and return an actual error
         let Ok(bytes) = self.bundle_reader.bytes(&path) else { return None };
 
-        let file = DatFile::from_bytes(path, bytes);
-        Some(file)
+        DatFile::from_bytes(path, bytes).ok()
     }
 
     fn spec(&self, path: &str) -> Option<&FileSpec> {
