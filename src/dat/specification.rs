@@ -5,6 +5,9 @@ use std::path::Path;
 
 use apollo_parser::ast::AstNode;
 use serde::Deserialize;
+use apollo_parser::Parser;
+use apollo_parser::ast::Definition;
+use apollo_parser::ast::Type;
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Clone)]
 pub struct FileSpec {
@@ -31,8 +34,19 @@ pub struct FieldSpec {
     pub field_name: String,
     pub field_type: String,
     pub file_name: Option<String>,
+    pub file_reference_key: Option<String>,
     pub enum_name: Option<EnumSpec>,
     pub field_offset: usize,
+}
+
+impl fmt::Display for FileSpec {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        writeln!(f, "{}", self.file_name)?;
+        self.file_fields.iter().for_each(|field| {
+            writeln!(f, "\t{} offset: {} enum({}) ref({}) fk({}) ", field, field.field_offset, field.enum_name.is_some(), field.file_reference_key.is_some(), field.file_name.is_some()).unwrap();
+        });
+        Ok(())
+    }
 }
 
 impl fmt::Display for FieldSpec {
@@ -43,8 +57,6 @@ impl fmt::Display for FieldSpec {
 
 impl FileSpec {
     pub fn read_enum_specs(path: &Path) -> HashMap<String, EnumSpec> {
-        use apollo_parser::Parser;
-        use apollo_parser::ast::Definition;
 
         std::fs::read_dir(path).expect("spec path does not exist")
             .filter_map(|directory| directory.ok().map(|entry| entry.path()))
@@ -92,11 +104,7 @@ impl FileSpec {
     }
 
     pub fn read_file_specs(path: &Path, enum_specs: &HashMap<String, EnumSpec>) -> HashMap<String, FileSpec> {
-        use apollo_parser::Parser;
-        use apollo_parser::ast::Definition;
-        use apollo_parser::ast::Type;
-
-        std::fs::read_dir(path).expect("spec path does not exist")
+        let specs: HashMap<_, _> = std::fs::read_dir(path).expect("spec path does not exist")
             .filter_map(|directory| directory.ok().map(|entry| entry.path()))
             .filter(|file_path| file_path.is_file() && file_path.extension().expect("gql file not found").to_string_lossy() == "gql")
             .flat_map(|file_path| {
@@ -120,10 +128,17 @@ impl FileSpec {
                             let name = field.name().unwrap().text();
 
                             let mut is_path_field = false;
+                            let mut reference_key = None;
                             if let Some(field_directives) = field.directives().map(|x| x.directives()) {
                                 for directive in field_directives {
+                                    // @file(ext: ".dds")
                                     if directive.name().unwrap().text().as_str() == "file" {
                                         is_path_field = true;
+                                    }
+                                    // @ref(column: "Id")
+                                    if directive.name().unwrap().text().as_str() == "ref" {
+                                        let first = directive.arguments().unwrap().arguments().find(|x| x.name().unwrap().text() == "column").unwrap().value().unwrap().syntax().text().to_string();
+                                        reference_key = Some(first);
                                     }
                                 }
                             }
@@ -134,16 +149,17 @@ impl FileSpec {
                                 Type::NamedType(it) => {
                                     let spec_type = it.syntax().text().to_string();
                                     match spec_type.as_str() {
-                                        "rid" | "i64" | "u64" => offset += 8,
-                                        "u32" | "i32" | "f32" | "string" => offset += 4,
+                                        "rid" | "i64" | "u64" | "string" => offset += 8,
+                                        "u32" | "i32" | "f32" => offset += 4,
                                         "bool" | "u8" => offset += 1,
-                                        t if t == filename => offset += 4, // self reference
-                                        _ => offset += 8,
+                                        //_ if reference_key.is_some() => offset += 4, // TODO: need grab the size from the foreign spec key! :(
+                                        t if t == filename => offset += 8, // self reference
+                                        _ => offset += 16,
                                     }
                                     spec_type
                                 }
                                 Type::ListType(it) => {
-                                    offset += 8;
+                                    offset += 16;
                                     is_list = true;
                                     it.syntax().first_child().unwrap().text().to_string()
                                 }
@@ -165,13 +181,11 @@ impl FileSpec {
                             };
 
                             let mut type_value = match (is_list, &key_file) {
-                                (true, Some(_)) => {
-                                    "list|u32".to_string()
-                                }
+                                (false, Some(_)) => "u64".to_string(),
+                                (true, Some(_)) => "list|u64".to_string(),
                                 (true, None) => {
                                     "list|".to_owned() + &type_name
                                 }
-                                (false, Some(_)) => "u32".to_string(),
                                 (false, None) => match type_name.as_str() {
                                     "string" => "ref|string",
                                     "path" => "ref|path",
@@ -179,7 +193,7 @@ impl FileSpec {
                                 }.to_string(),
                             };
                             if enum_spec.is_some() {
-                                offset -= 4;
+                                offset -= 12;
                                 type_value = "u32".to_string();
                             }
 
@@ -187,6 +201,7 @@ impl FileSpec {
                                 field_name: name.to_string(),
                                 field_type: type_value.to_string(),
                                 file_name: key_file,
+                                file_reference_key: reference_key,
                                 enum_name: enum_spec.cloned(),
                                 field_offset: current_offset,
                             });
@@ -205,7 +220,33 @@ impl FileSpec {
                     Definition::EnumTypeDefinition(_) => None,
                     def => unimplemented!("Unhandled definition: {:?}", def),
                 }
-            }).collect()
+            }).collect();
+/*
+        // correct specs with @ref(column: "Id")
+        let specs_with_column_references: Vec<_> = specs.iter().filter_map(|(key, value)| {
+            if value.file_fields.iter().any(|x| x.file_reference_key.is_some()) {
+                return Some(key)
+            }
+            None
+        }).collect();
+
+
+        for spec_key in specs_with_column_references {
+            let Some(spec) = specs.get(spec_key) else { continue };
+            let mut offset = 0;
+            for field in &spec.file_fields {
+
+
+                let Some(file_name) = &field.file_name else { continue };
+                let Some(foreign_key) = &field.file_reference_key else { continue };
+                let Some(foreign_spec) = specs.get(file_name) else { continue };
+
+                //let Some(foreign_field) = foreign_spec.file_fields.iter().find(|field| field == foreign_key) else { continue };
+                let Some(spec) = specs.get(spec_key) else { continue };
+            }
+        }
+*/
+        specs
     }
 
     pub fn field_size(field: &FieldSpec) -> usize {

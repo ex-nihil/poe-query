@@ -59,6 +59,7 @@ impl DatFile {
     }
 
     pub fn valid(&self, spec: &FileSpec) {
+        info!("Validating using specification '{}'", spec);
         let last_field = spec.file_fields.last();
         if let Some(field) = last_field {
             let spec_row_size = field.field_offset + FileSpec::field_size(field);
@@ -103,14 +104,14 @@ impl DatFile {
                 x => panic!("reading {} from row {} - got {:?}", field, row, x)
             }
         } else if prefix.filter(|&dtype| "list" == dtype).is_some() {
-            let length = cursor.u32();
-            let offset = cursor.u32();
+            let length = cursor.u64();
+            let offset = cursor.u64();
             match (offset, length) {
                 (Value::U64(o), Value::U64(len)) => Value::List(self.read_list(o, len, parts.next().unwrap())),
                 _ => Value::Empty
             }
         } else if prefix.filter(|&dtype| "ref" == dtype).is_some() {
-            match cursor.u32() {
+            match cursor.u64() {
                 Value::U64(offset) => self.read_value(offset, parts.next().unwrap()),
                 Value::Empty => Value::Empty,
                 x => panic!("reading {} from row {} - got {:?}", field, row, x)
@@ -181,10 +182,12 @@ impl ReadBytesToValue for Cursor<&[u8]> {
         }
     }
 
+    // I've seen booleans return both 1 and 254, what's the significance?
     fn bool(&mut self) -> Value {
         match self.read_u8() {
             Ok(0) => Value::Bool(false),
             Ok(1) => Value::Bool(true),
+            Ok(254) => Value::Bool(true),
             Ok(value) => {
                 warn!("Expected boolean value got {}", value);
                 Value::Bool(true)

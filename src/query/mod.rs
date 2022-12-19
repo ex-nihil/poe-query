@@ -326,15 +326,19 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
         Rule::reduce => {
             let inner = pair.into_inner();
 
-            let mut initial = Vec::new();
-            let mut inner_terms = Vec::new();
-            let mut outer_terms = Vec::new();
+            let mut initial = Vec::<Term>::new();
+            let mut inner_terms = Vec::<Term>::new();
+            let mut outer_terms = Vec::<Term>::new();
             let mut current = &mut outer_terms;
             for next in inner {
                 match next.as_rule() {
                     Rule::reduce_init_value => {
                         current = &mut inner_terms;
-                        initial.append(&mut build_ast(next.into_inner().next().unwrap()));
+                        let Some(inner_next) = next.into_inner().next() else {
+                            error!("Expected a value from iterator, but got None");
+                            process::exit(-1);
+                        };
+                        initial.append(&mut build_ast(inner_next));
                     }
                     _ => current.append(&mut build_ast(next.into_inner().next().unwrap()))
                 }

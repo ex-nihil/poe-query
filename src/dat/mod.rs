@@ -1,7 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use log::{error, info};
+
+use log::info;
 use poe_bundle::{BundleReader, BundleReaderRead};
+
 use crate::dat::file::DatFile;
 use crate::dat::specification::{EnumSpec, FileSpec};
 
@@ -33,14 +35,13 @@ impl<'a> DatReader<'a> {
 
     fn get_filepath(&self, filename: &str) -> String {
         if self.language == "English" {
-            return format!("Data/{}.dat", filename)
+            return format!("Data/{}.dat64", filename)
         }
-        format!("Data/{}/{}.dat", self.language, filename)
+        format!("Data/{}/{}.dat64", self.language, filename)
     }
 }
 
 pub trait DatStoreImpl<'a> {
-    fn file(&self, spec: &FileSpec) -> Option<DatFile>;
     fn file_by_filename(&self, filename: &str) -> Option<DatFile>;
     fn spec(&self, path: &str) -> Option<&FileSpec>;
     fn spec_by_export(&self, export: &str) -> Option<&FileSpec>;
@@ -49,30 +50,21 @@ pub trait DatStoreImpl<'a> {
 }
 
 impl<'a> DatStoreImpl<'a> for DatReader<'a> {
-    fn file(&self, spec: &FileSpec) -> Option<DatFile> {
-        let path = self.get_filepath(&spec.file_name);
-        info!("Unpacking {}", path);
-        let Ok(bytes) = self.bundle_reader.bytes(&path) else { return None };
-
-        match DatFile::from_bytes(path, bytes) {
-            Ok(file) => {
-                file.valid(spec);
-                Some(file)
-            }
-            Err((file_path, error)) => {
-                error!("{} {}", file_path, error);
-                None
-            }
-        }
-    }
-
     fn file_by_filename(&self, filename: &str) -> Option<DatFile> {
         let path = self.get_filepath(filename);
+        let spec = self.spec(filename);
         info!("Unpacking {}", path);
         // TODO: remove unwrap() in poe_bundle and return an actual error
         let Ok(bytes) = self.bundle_reader.bytes(&path) else { return None };
 
-        DatFile::from_bytes(path, bytes).ok()
+        let dat_file = DatFile::from_bytes(path, bytes).ok();
+        match (spec, dat_file) {
+            (Some(file_specification), Some(dat_file)) => {
+                dat_file.valid(file_specification);
+                Some(dat_file)
+            },
+            (_, dat_file) => dat_file
+        }
     }
 
     fn spec(&self, path: &str) -> Option<&FileSpec> {
