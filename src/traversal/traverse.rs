@@ -204,10 +204,13 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
 
 
                     let initial = self.traverse_terms_inner(&mut context.clone_value(None), cache, init);
-                    let variable = vars.first().unwrap().as_str();
+                    let Some(variable) = vars.first() else {
+                      return None;
+                    };
+
                     let value = cache
                         .variables
-                        .get(variable)
+                        .get(variable.as_str())
                         .unwrap_or(&Value::Empty)
                         .clone();
 

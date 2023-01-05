@@ -63,7 +63,6 @@ kv_by_field = { identifier }
 construct = _{ array_construction | object_construct }
 array_construction = { "[" ~ query* ~ "]" }
 
-
 // OBJECT CONSTRUCTION
 object_construct = { "{" ~ ((key_value | kv_by_field) ~ comma?)* ~ "}" }
 key_value = { key ~ (!("," ~ &key) ~ query)+ }

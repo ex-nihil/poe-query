@@ -340,7 +340,7 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
                         };
                         initial.append(&mut build_ast(inner_next));
                     }
-                    _ => current.append(&mut build_ast(next.into_inner().next().unwrap()))
+                   _ => current.append(&mut build_ast(next))
                 }
             }
             Term::Reduce(outer_terms, initial, inner_terms)

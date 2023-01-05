@@ -28,3 +28,12 @@ fn field() {
     assert_eq!(result, vec!["2"]);
 }
 
+#[test]
+fn reduce() {
+    let result = process(r#"[
+    { "ring": 1000 },
+    { "default": 1000 }
+    ] | reduce .[] as $item ({}; . + $item)"#);
+
+    assert_eq!(result, vec![r#"{"ring":1000,"default":1000}"#]);
+}

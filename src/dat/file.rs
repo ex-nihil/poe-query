@@ -59,7 +59,7 @@ impl DatFile {
     }
 
     pub fn valid(&self, spec: &FileSpec) {
-        info!("Validating using specification '{}'", spec);
+        debug!("Validating using specification '{}'", spec);
         let last_field = spec.file_fields.last();
         if let Some(field) = last_field {
             let spec_row_size = field.field_offset + FileSpec::field_size(field);
