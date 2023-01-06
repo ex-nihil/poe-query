@@ -96,7 +96,6 @@ $ poe_query '.Mods[0] | [.SpawnWeight_TagsKeys[].Id, .SpawnWeight_Values] | tran
 There's an alias for the map/reduce operation above named `zip_to_obj` that can be used instead.
 
 # wishlist (TODO)
- - support @ref(column) directives
  - translations
  - reduce amount of copying of data
  - optional multithreading (HDD vs SSD)

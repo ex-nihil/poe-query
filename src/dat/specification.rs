@@ -36,6 +36,7 @@ pub struct FieldSpec {
     pub file_name: Option<String>,
     pub file_reference_key: Option<String>,
     pub enum_name: Option<EnumSpec>,
+    pub field_size: usize,
     pub field_offset: usize,
 }
 
@@ -43,7 +44,7 @@ impl fmt::Display for FileSpec {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(f, "{}", self.file_name)?;
         self.file_fields.iter().for_each(|field| {
-            writeln!(f, "\t{} offset: {} enum({}) ref({}) fk({}) ", field, field.field_offset, field.enum_name.is_some(), field.file_reference_key.is_some(), field.file_name.is_some()).unwrap();
+            writeln!(f, "\t{:03} {} enum({}) ref({}) fk({}) ", field.field_offset, field, field.enum_name.is_some(), field.file_reference_key.is_some(), field.file_name.is_some()).unwrap();
         });
         Ok(())
     }
@@ -103,8 +104,11 @@ impl FileSpec {
             }).collect::<HashMap<_, _>>()
     }
 
-    pub fn read_file_specs(path: &Path, enum_specs: &HashMap<String, EnumSpec>) -> HashMap<String, FileSpec> {
-        let specs: HashMap<_, _> = std::fs::read_dir(path).expect("spec path does not exist")
+    pub fn read_specs_transform_definitions<F, T>(path: &Path, transform: F) -> HashMap<String, T>
+        where
+            F: Fn(Definition) -> Option<(String, T)>,
+    {
+        let specs: HashMap<_, T> = std::fs::read_dir(path).expect("spec path does not exist")
             .filter_map(|directory| directory.ok().map(|entry| entry.path()))
             .filter(|file_path| file_path.is_file() && file_path.extension().expect("gql file not found").to_string_lossy() == "gql")
             .flat_map(|file_path| {
@@ -116,137 +120,150 @@ impl FileSpec {
                 assert_eq!(ast.errors().len(), 0);
                 ast.document().definitions()
             })
-            .filter_map(|definition| {
-                match definition {
-                    Definition::ObjectTypeDefinition(obj) => {
-                        let filename = obj.name().unwrap().text().to_string();
-                        let mut offset = 0;
+            .filter_map(transform)
+            .collect();
+        specs
+    }
 
-                        let mut fields = Vec::new();
-                        for field in obj.fields_definition().unwrap().field_definitions() {
-                            let current_offset = offset;
-                            let name = field.name().unwrap().text();
 
-                            let mut is_path_field = false;
-                            let mut reference_key = None;
-                            if let Some(field_directives) = field.directives().map(|x| x.directives()) {
-                                for directive in field_directives {
-                                    // @file(ext: ".dds")
-                                    if directive.name().unwrap().text().as_str() == "file" {
-                                        is_path_field = true;
-                                    }
-                                    // @ref(column: "Id")
-                                    if directive.name().unwrap().text().as_str() == "ref" {
-                                        let first = directive.arguments().unwrap().arguments().find(|x| x.name().unwrap().text() == "column").unwrap().value().unwrap().syntax().text().to_string();
-                                        reference_key = Some(first);
-                                    }
+
+    pub fn read_file_specs(path: &Path, enum_specs: &HashMap<String, EnumSpec>, file_specs: &HashMap<String, FileSpec>) -> HashMap<String, FileSpec> {
+        Self::read_specs_transform_definitions(path, |definition| {
+            match definition {
+                Definition::ObjectTypeDefinition(obj) => {
+                    let filename = obj.name().unwrap().text().to_string();
+                    let mut offset = 0;
+
+                    let mut fields = Vec::new();
+                    for field in obj.fields_definition().unwrap().field_definitions() {
+                        let current_offset = offset;
+                        let name = field.name().unwrap().text();
+
+                        let mut is_path_field = false;
+                        let mut reference_key = None;
+                        if let Some(field_directives) = field.directives().map(|x| x.directives()) {
+                            for directive in field_directives {
+                                // @file(ext: ".dds")
+                                if directive.name().unwrap().text().as_str() == "file" {
+                                    is_path_field = true;
+                                }
+                                // @ref(column: "Id")
+                                if directive.name().unwrap().text().as_str() == "ref" {
+                                    let first = directive.arguments().unwrap().arguments().find(|x| x.name().unwrap().text() == "column").unwrap().value().unwrap().syntax().text().to_string();
+                                    reference_key = Some(first.replace("\"",""));
                                 }
                             }
-
-                            let mut is_list = false;
-
-                            let type_name = match field.ty().unwrap() {
-                                Type::NamedType(it) => {
-                                    let spec_type = it.syntax().text().to_string();
-                                    match spec_type.as_str() {
-                                        "i64" | "u64" | "string" => offset += 8,
-                                        "u32" | "i32" | "f32" => offset += 4,
-                                        "bool" | "u8" => offset += 1,
-                                        //_ if reference_key.is_some() => offset += 4, // TODO: need grab the size from the foreign spec key! :(
-                                        t if t == filename => offset += 8, // self reference
-                                        _ => offset += 16,
-                                    }
-                                    spec_type
-                                }
-                                Type::ListType(it) => {
-                                    offset += 16;
-                                    is_list = true;
-                                    it.syntax().first_child().unwrap().text().to_string()
-                                }
-                                node => unimplemented!("Unhandled node: {:?}", node),
-                            };
-
-                            let type_name = match type_name.as_str() {
-                                "rid" => "u64".to_string(),
-                                _ if is_path_field => "path".to_string(),
-                                _ => type_name
-                            };
-
-                            let enum_spec = enum_specs.get(type_name.as_str());
-
-                            let key_file = match type_name.as_str() {
-                                "i32" | "bool" | "string" | "f32" | "u32" | "path" | "_" => None,
-                                _ if enum_spec.is_some() => None,
-                                fk => Some(fk.to_string())
-                            };
-
-                            let mut type_value = match (is_list, &key_file) {
-                                (false, Some(_)) => "u64".to_string(),
-                                (true, Some(_)) => "list|u64".to_string(),
-                                (true, None) => {
-                                    "list|".to_owned() + &type_name
-                                }
-                                (false, None) => match type_name.as_str() {
-                                    "string" => "ref|string",
-                                    "path" => "ref|path",
-                                    t => t
-                                }.to_string(),
-                            };
-                            if enum_spec.is_some() {
-                                offset -= 12;
-                                type_value = "u32".to_string();
-                            }
-
-                            fields.push(FieldSpec {
-                                field_name: name.to_string(),
-                                field_type: type_value.to_string(),
-                                file_name: key_file,
-                                file_reference_key: reference_key,
-                                enum_name: enum_spec.cloned(),
-                                field_offset: current_offset,
-                            });
                         }
 
-                        let spec = FileSpec {
-                            file_name: filename,
-                            file_fields: fields,
+                        let mut is_list = false;
+
+                        let field_type = field.ty().unwrap();
+
+                        let type_name = match &field_type {
+                            Type::NamedType(it) => {
+                                it.syntax().text().to_string()
+                            }
+                            Type::ListType(it) => {
+                                is_list = true;
+                                it.syntax().first_child().unwrap().text().to_string()
+                            }
+                            node => unimplemented!("Unhandled node: {:?}", node),
                         };
 
-                        Some((
-                            spec.file_name.clone(),
-                            spec
-                        ))
+                        let enum_spec = enum_specs.get(type_name.as_str());
+
+                        let mut type_name = match type_name.as_str() {
+                            "rid" => "u64".to_string(),
+                            _ if is_path_field => "path".to_string(),
+                            _ => type_name
+                        };
+
+                        let key_file = match type_name.as_str() {
+                            "i32" | "bool" | "string" | "f32" | "u32" | "path" | "_" => None,
+                            _ if enum_spec.is_some() => None,
+                            fk => Some(fk.to_string())
+                        };
+
+                        if reference_key.is_some() && key_file.is_some() {
+                            match file_specs.get(key_file.as_ref().unwrap()) {
+                                None => {},
+                                Some(file_spec) => {
+                                    type_name = file_spec.file_fields.iter()
+                                        .find(|x| Some(&x.field_name) == reference_key.as_ref())
+                                        .map(|field| field.field_type.clone())
+                                        .unwrap();
+                                }
+                            }
+                        }
+
+                        let mut field_size: usize = match type_name.as_str() {
+                            "bool" | "u8" => 1,
+                            "u32" | "i32" | "f32" => 4,
+                            "i64" | "u64" | "string" => 8,
+                            _ if reference_key.is_some() && key_file.is_some() => {
+                                match file_specs.get(key_file.as_ref().unwrap()) {
+                                    None => 16,
+                                    Some(file_spec) => {
+                                        file_spec.file_fields.iter()
+                                            .find(|x| Some(&x.field_name) == reference_key.as_ref())
+                                            .map(|field| field.field_offset)
+                                            .unwrap_or_else(|| 16)
+                                    }
+                                }
+                            },
+                            _ if enum_spec.is_some() => 4,
+                            t if t == filename => 8, // self reference
+                            _ => 16,
+                        };
+
+                        if is_list {
+                            field_size = 16;
+                        }
+
+                        offset += field_size;
+
+
+                        let mut type_value = match (is_list, &key_file) {
+                            (false, Some(_)) => "u64".to_string(),
+                            (true, Some(_)) => "list|u64".to_string(),
+                            (true, None) => {
+                                "list|".to_owned() + &type_name
+                            }
+                            (false, None) => match type_name.as_str() {
+                                "string" => "ref|string",
+                                "path" => "ref|path",
+                                t => t
+                            }.to_string(),
+                        };
+                        if enum_spec.is_some() {
+                            type_value = "u32".to_string();
+                        }
+
+                        fields.push(FieldSpec {
+                            field_name: name.to_string(),
+                            field_type: type_value.to_string(),
+                            file_name: key_file,
+                            file_reference_key: reference_key,
+                            enum_name: enum_spec.cloned(),
+                            field_size,
+                            field_offset: current_offset,
+                        });
                     }
-                    Definition::EnumTypeDefinition(_) => None,
-                    def => unimplemented!("Unhandled definition: {:?}", def),
+
+                    let spec = FileSpec {
+                        file_name: filename,
+                        file_fields: fields,
+                    };
+
+                    Some((
+                        spec.file_name.clone(),
+                        spec
+                    ))
                 }
-            }).collect();
-/*
-        // correct specs with @ref(column: "Id")
-        let specs_with_column_references: Vec<_> = specs.iter().filter_map(|(key, value)| {
-            if value.file_fields.iter().any(|x| x.file_reference_key.is_some()) {
-                return Some(key)
+                Definition::EnumTypeDefinition(_) => None,
+                def => unimplemented!("Unhandled definition: {:?}", def),
             }
-            None
-        }).collect();
-
-
-        for spec_key in specs_with_column_references {
-            let Some(spec) = specs.get(spec_key) else { continue };
-            let mut offset = 0;
-            for field in &spec.file_fields {
-
-
-                let Some(file_name) = &field.file_name else { continue };
-                let Some(foreign_key) = &field.file_reference_key else { continue };
-                let Some(foreign_spec) = specs.get(file_name) else { continue };
-
-                //let Some(foreign_field) = foreign_spec.file_fields.iter().find(|field| field == foreign_key) else { continue };
-                let Some(spec) = specs.get(spec_key) else { continue };
-            }
-        }
-*/
-        specs
+        })
     }
 
     pub fn field_size(field: &FieldSpec) -> usize {

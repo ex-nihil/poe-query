@@ -23,7 +23,8 @@ impl<'a> DatReader<'a> {
 
     pub fn from_install(language: &'a str, bundles: &'a BundleReader, spec_path: &Path) -> DatReader<'a> {
         let enums = FileSpec::read_enum_specs(spec_path);
-        let specs = FileSpec::read_file_specs(spec_path, &enums);
+        let specs = FileSpec::read_file_specs(spec_path, &enums, &HashMap::new());
+        let specs = FileSpec::read_file_specs(spec_path, &enums, &specs);
 
         DatReader {
             language,
