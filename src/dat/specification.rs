@@ -149,7 +149,7 @@ impl FileSpec {
                                 Type::NamedType(it) => {
                                     let spec_type = it.syntax().text().to_string();
                                     match spec_type.as_str() {
-                                        "rid" | "i64" | "u64" | "string" => offset += 8,
+                                        "i64" | "u64" | "string" => offset += 8,
                                         "u32" | "i32" | "f32" => offset += 4,
                                         "bool" | "u8" => offset += 1,
                                         //_ if reference_key.is_some() => offset += 4, // TODO: need grab the size from the foreign spec key! :(
