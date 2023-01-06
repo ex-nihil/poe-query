@@ -1,6 +1,6 @@
 [package]
 name = "poe_query"
-version = "0.1.16"
+version = "0.1.17"
 authors = ["Daniel <daniel@timeloop.se>"]
 edition = "2021"
 
