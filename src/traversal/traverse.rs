@@ -67,7 +67,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
         } else if parsed_terms.contains(&Term::CommaSeparator) {
             parsed_terms
                 .split(|term| matches!(term, Term::CommaSeparator))
-                .filter_map(|terms| Some(self.traverse(&mut context.clone(), cache, terms)))
+                .map(|terms| self.traverse(&mut context.clone(), cache, terms))
                 .collect()
         } else {
             vec![self
@@ -76,8 +76,8 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
         };
 
         context.identity = match values.len() {
-            0  => None,
-            1  => values.into_iter().next(),
+            0 => None,
+            1 => values.into_iter().next(),
             _ => Some(Value::Iterator(values))
         };
 
@@ -110,7 +110,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
             unexpected => {
                 error!("Unhandled term in query: {:?}.", unexpected);
                 process::exit(-1);
-            },
+            }
         }
     }
 
@@ -132,7 +132,6 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                     let elems = self.to_iterable(context, cache);
 
                     let result = iterate(elems, |v| {
-
                         let left = self.traverse(&mut context.clone_value(Some(v.clone())), cache, lhs);
                         let right = self.traverse(&mut context.clone_value(Some(v.clone())), cache, rhs);
 
@@ -140,7 +139,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                             return match left {
                                 Value::Bool(true) => Some(v),
                                 _ => None
-                            }
+                            };
                         };
 
                         let selected = match op {
@@ -148,7 +147,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                             Compare::NotEquals => left != right,
                             Compare::LessThan => left < right,
                             Compare::GreaterThan => left > right,
-                            Compare::LessThanEq =>  left <= right,
+                            Compare::LessThanEq => left <= right,
                             Compare::GreaterThanEq => left >= right,
                         };
                         if selected {
@@ -158,23 +157,23 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                         }
                     });
                     Some(result)
-                },
+                }
                 Term::Contains(terms) => {
                     match self.traverse(&mut context.clone(), cache, terms) {
                         Value::Str(substr) => {
-                            let Some(value) = context.identity.take() else { return None };
-                            let Value::Str(field_string) = value else { return None };
+                            let Some(value) = context.identity.take() else { return None; };
+                            let Value::Str(field_string) = value else { return None; };
                             if field_string.contains(&substr) {
-                                return Some(Value::Bool(true))
+                                return Some(Value::Bool(true));
                             }
-                        },
+                        }
                         wanted_contains => {
                             error!("Unsupported contains type: {:?}", wanted_contains);
                             process::exit(-1);
                         }
                     }
                     Some(Value::Bool(false))
-                },
+                }
                 Term::Iterator => {
                     Some(self.to_iterable(context, cache))
                 }
@@ -187,15 +186,15 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                         _ => Value::Empty,
                     };
                     Some(result)
-                },
+                }
                 Term::SetVariable(name) => {
                     cache.variables
                         .insert(name.to_string(), self.identity(context));
                     context.identity.take()
-                },
+                }
                 Term::GetVariable(name) => {
                     Some(cache.variables.get(name).unwrap_or(&Value::Empty).clone())
-                },
+                }
                 Term::Reduce(outer_terms, init, terms) => {
                     // search for variables
                     let vars: Vec<&String> = outer_terms
@@ -209,7 +208,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
 
                     let initial = self.traverse(&mut context.clone_value(None), cache, init);
                     let Some(variable) = vars.first() else {
-                      return None;
+                        return None;
                     };
 
                     let value = cache
@@ -227,13 +226,13 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                     });
 
                     Some(result)
-                },
+                }
                 Term::Map(terms) => {
                     let result = iterate(self.to_iterable(context, cache), |v| {
                         Some(self.traverse(&mut context.clone_value(Some(v)), cache, terms))
                     });
                     Some(result)
-                },
+                }
                 Term::ObjectConstruction(obj_terms) => {
                     if let Some(value) = context.identity.take() {
                         Some(iterate(value, |v| {
@@ -244,7 +243,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                         let output = self.traverse(context, cache, obj_terms);
                         Some(Value::Object(Box::new(output)))
                     }
-                },
+                }
                 Term::KeyValue(key, value_terms) => {
                     let key = self.traverse(&mut context.clone(), cache, &[*key.clone()]);
                     let result = self.traverse(&mut context.clone(), cache, &value_terms.to_vec());
@@ -255,7 +254,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                             Some(Value::KeyValue(Box::new(key), Box::new(result)))
                         }
                     }
-                },
+                }
                 Term::Identity => {
                     if context.current_file.is_none() && context.identity.is_none() {
                         if self.store.is_none() {
@@ -287,7 +286,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                         Value::List(_) => Some(result),
                         one_element => Some(Value::List(vec![one_element])),
                     }
-                },
+                }
                 Term::Length => match context.identity() {
                     Value::Str(string) => Some(Value::U64(string.chars().count() as u64)),
                     Value::List(list) => Some(Value::U64(list.len() as u64)),
@@ -311,11 +310,11 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                                             Value::Str(key) => Some(Value::Str(key)),
                                             _ => None,
                                         }
-                                    },
+                                    }
                                     _ => None,
                                 }).collect();
                                 Some(Value::List(keys))
-                            },
+                            }
                             _ => None
                         }
                     }
@@ -323,10 +322,10 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                 },
                 Term::Key(terms) => {
                     Some(self.traverse(context, cache, terms))
-                },
+                }
                 Term::StringLiteral(text) => {
                     Some(Value::Str(text.to_string()))
-                },
+                }
                 Term::Transpose => match context.identity() {
                     Value::List(values) => {
                         trace!("transpose input {:?}", values);
@@ -357,14 +356,14 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                     unexpected => {
                         error!("Transpose is only supported on lists. Attempted on type: {}.", unexpected);
                         process::exit(-1);
-                    },
+                    }
                 },
                 Term::UnsignedNumber(value) => {
                     Some(Value::U64(*value))
-                },
+                }
                 Term::SignedNumber(value) => {
                     Some(Value::I64(*value))
-                },
+                }
                 _ => Some(self.traverse_term(context, cache, term))
             };
         }
@@ -379,7 +378,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
             .or_else(|| self.store.and_then(|s| s.spec_by_export(context.current_file.as_ref().unwrap_or(&"".to_string()))));
 
         self.enter_foreign(context, cache);
-        if let (Some(spec), None)  = (spec, &context.current_file) {
+        if let (Some(spec), None) = (spec, &context.current_file) {
             // generate initial values
             let file = cache.files.entry(spec.file_name.to_string()).or_insert_with(|| self.store.unwrap().file_by_filename(&spec.file_name).unwrap());
 
@@ -411,24 +410,9 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
     fn index(&self, context: &mut TraversalContext, index: usize) {
         let value = context.identity();
         context.identity = match value {
-            Value::List(list) => match list.into_iter().nth(index) {
-                Some(value) => Some(value),
-                None => {
-                    error!("Index out of bounds. List[{index}]");
-                    process::exit(-1);
-                },
-            },
-            Value::Str(str) => match str.chars().nth(index) {
-                Some(value) => Some(Value::Str(value.to_string())),
-                None => {
-                    error!("Index out of bounds. String[{index}]");
-                    process::exit(-1);
-                },
-            },
-            unexpected => {
-                error!("Type {unexpected} cannot be indexed");
-                process::exit(-1);
-            },
+            Value::List(list) => list.into_iter().nth(index),
+            Value::Str(str) => str.chars().nth(index).map(|value| Value::Str(value.to_string())),
+            _ => None,
         };
     }
 
@@ -436,26 +420,14 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
         let value = context.identity();
         context.identity = match value {
             Value::List(list) => {
-                let size = list.len();
-                match list.into_iter().nth(size - index) {
-                    Some(value) => Some(value),
-                    None => {
-                        error!("Index out of bounds. List[{index}]");
-                        process::exit(-1);
-                    },
-                }
-            },
-            Value::Str(str) => match str.chars().nth(index) {
-                Some(value) => Some(Value::Str(value.to_string())),
-                None => {
-                    error!("Index out of bounds. String[{index}]");
-                    process::exit(-1);
-                },
-            },
-            unexpected => {
-                error!("Type {unexpected} cannot be indexed");
-                process::exit(-1);
-            },
+                let index = list.len() - index;
+                list.into_iter().nth(index)
+            }
+            Value::Str(str) => {
+                let index = str.chars().count() - index;
+                str.chars().nth(index).map(|value| Value::Str(value.to_string()))
+            }
+            _ => None,
         };
     }
 
@@ -483,7 +455,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                     let to = min(to, str.len());
                     Some(Value::Str(str[from..to].to_string()))
                 }
-            },
+            }
             unexpected => {
                 error!("Type {unexpected} cannot be sliced/indexed");
                 process::exit(-1);
@@ -546,9 +518,9 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                     unexpected => {
                         error!("failed to extract Value::Object. Object contained {}", unexpected);
                         process::exit(-1);
-                    },
+                    }
                 }
-            },
+            }
             Value::Iterator(values) => {
                 let mut result = Vec::new();
                 for value in values {
@@ -559,7 +531,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                             } else {
                                 Value::Empty
                             }
-                        },
+                        }
                         Value::Object(elements) => {
                             let obj = match *elements {
                                 Value::List(fields) | Value::Iterator(fields) => fields,
@@ -581,21 +553,21 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                                     unexpected => {
                                         error!("failed to extract Value::Object. Object contained {}", unexpected);
                                         process::exit(-1);
-                                    },
+                                    }
                                 }
                             }
                             first
-                        },
+                        }
                         unexpected => {
                             error!("Unable to to iterate over {}.", unexpected);
                             process::exit(-1);
-                        },
+                        }
                     };
                     result.push(item);
                 }
 
                 Value::List(result)
-            },
+            }
             Value::U64(i) => {
                 let current = context.current_file.as_ref().unwrap();
                 let spec = self.store.unwrap().spec(current).unwrap();
@@ -614,7 +586,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                     .collect();
 
                 Value::Object(Box::new(Value::List(kv_list)))
-            },
+            }
             _ => Value::Empty,
         }
     }
@@ -657,7 +629,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                     unexpected => {
                         error!("Not a valid id for foreign key {}.", unexpected);
                         process::exit(-1);
-                    },
+                    }
                 }
                     .iter()
                     .filter_map(|v| match v {
@@ -666,7 +638,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                         unexpected => {
                             error!("Unexpected value {} in enter_foreign.", unexpected);
                             process::exit(-1);
-                        },
+                        }
                     })
                     .collect();
 
@@ -715,7 +687,7 @@ impl TraversalContext {
         Self {
             current_field: self.current_field.clone(),
             current_file: self.current_file.clone(),
-            identity: ident
+            identity: ident,
         }
     }
 

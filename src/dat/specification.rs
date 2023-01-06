@@ -135,7 +135,7 @@ impl FileSpec {
                                 // @ref(column: "Id")
                                 if directive.name().unwrap().text().as_str() == "ref" {
                                     let first = directive.arguments().unwrap().arguments().find(|x| x.name().unwrap().text() == "column").unwrap().value().unwrap().syntax().text().to_string();
-                                    reference_key = Some(first.replace("\"", ""));
+                                    reference_key = Some(first.replace('"',""));
                                 }
                             }
                         }
