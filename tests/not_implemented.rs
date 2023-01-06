@@ -15,3 +15,9 @@ fn conditionals() {
     let result = process(r#"2 | if . == 0 then "zero" elif . == 1 then "one" else "many" end"#);
     assert_eq!(result, vec![r#""many""#]);
 }
+
+//#[test]
+fn iterate_to_array_construction() {
+    let result = process(r#"[{"a": 1}, {"a": 2}][] | [."a"]"#);
+    assert_eq!(result, vec![r#""[1][2]""#]);
+}
