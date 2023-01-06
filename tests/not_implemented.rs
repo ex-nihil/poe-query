@@ -15,9 +15,3 @@ fn conditionals() {
     let result = process(r#"2 | if . == 0 then "zero" elif . == 1 then "one" else "many" end"#);
     assert_eq!(result, vec![r#""many""#]);
 }
-
-//#[test]
-fn multiple_queries() {
-    let result = process(r#"[1,2,3] | .[1], .[0]"#);
-    assert_eq!(result, vec!["2", "1"]);
-}

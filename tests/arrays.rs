@@ -63,3 +63,9 @@ fn slice_invalid_order_return_empty_array() {
     let result = process("[0, 1, 2, 3, 4, 5, 6] | .[-1:-3]");
     assert_eq!(result[0], "[]");
 }
+
+#[test]
+fn multiple_queries() {
+    let result = process(r#"[1,2,3] | .[1], .[0]"#);
+    assert_eq!(result, vec!["2","1"]);
+}

@@ -15,7 +15,7 @@ pub mod file;
 pub struct DatReader<'a> {
     language: &'a str,
     bundle_reader: &'a BundleReader,
-    pub specs: HashMap<String, FileSpec>,
+    specs: HashMap<String, FileSpec>,
     enums: HashMap<String, EnumSpec>,
 }
 

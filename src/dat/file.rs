@@ -187,7 +187,7 @@ impl ReadBytesToValue for Cursor<&[u8]> {
         match self.read_u8() {
             Ok(0) => Value::Bool(false),
             Ok(1) => Value::Bool(true),
-            Ok(254) => Value::Bool(true),
+            Ok(255) => Value::Bool(true),
             Ok(value) => {
                 warn!("Expected boolean value got {}", value);
                 Value::Bool(true)

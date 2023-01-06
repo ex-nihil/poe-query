@@ -102,9 +102,5 @@ There's an alias for the map/reduce operation above named `zip_to_obj` that can 
  - darwin release targets
  - offer to download latest spec if not found
 
- # known issues
-   - codebase is a crime against humanity
-   - `{foo: 1, bar: 2} | .foo, .bar` returns `[1,null]` instead of `[1,2]`
-
 The goal is not to be 100% like jq.  
 But if you have something you would want implemented a [jqplay](https://jqplay.org/) example would be helpful.

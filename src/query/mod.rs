@@ -38,7 +38,7 @@ pub enum Term {
     Length,
     Keys,
     NoOperation,
-    _PipeOperator,
+    PipeOperator,
     _Equal,
 }
 
@@ -156,10 +156,7 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
     trace!("{:?}", pair.as_rule());
     match pair.as_rule() {
         Rule::EOI => Term::NoOperation,
-        Rule::pipe => {
-            // Should be Term::pipe, but as of now, the traversal does not need it for anything
-            Term::NoOperation
-        }
+        Rule::pipe => Term::PipeOperator,
         Rule::iterator => Term::Iterator,
         Rule::identity => Term::Identity,
         Rule::comma => Term::CommaSeparator,

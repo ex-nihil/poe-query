@@ -55,12 +55,14 @@ impl ops::Add<Value> for Value {
             (Object(lhs), Object(rhs)) => {
                 let lhs_content = match *lhs {
                     Value::List(list) => list,
+                    Value::Iterator(list) => list,
                     Value::KeyValue(_, _) => vec![*lhs],
                     Value::Empty => vec![],
                     _ => panic!("object contained unknown type"),
                 };
                 let rhs_content = match *rhs {
                     Value::List(list) => list,
+                    Value::Iterator(list) => list,
                     Value::KeyValue(_, _) => vec![*rhs],
                     Value::Empty => vec![],
                     _ => panic!("object contained unknown type"),
@@ -125,14 +127,18 @@ impl Serialize for Value {
     {
         match self {
             Value::Object(content) => match content.deref() {
-                Value::List(list) => {
+                Value::List(list) | Value::Iterator(list) => {
                     let mut map = serializer.serialize_map(Some(list.len()))?;
                     for value in list {
-                        if let Value::KeyValue(k, v) = value {
-                            map.serialize_entry(k.as_ref(), v.as_ref())?
-                        } else {
-                            error!("object contained an unexpected value: {:?}", value);
-                            process::exit(-1);
+                        match value {
+                            Value::KeyValue(k, v) => {
+                                map.serialize_entry(k.as_ref(), v.as_ref())?
+                            }
+                            Value::Empty => {}
+                            _ => {
+                                error!("object contained an unexpected value: {:?}", value);
+                                process::exit(-1);
+                            }
                         }
                     }
                     map.end()

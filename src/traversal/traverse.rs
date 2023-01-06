@@ -55,10 +55,19 @@ trait DataTraverser<'a> {
 
 impl<'a> DataTraverser<'a> for StaticContext<'a> {
     fn traverse(&self, context: &mut TraversalContext, cache: &mut SharedCache, parsed_terms: &[Term]) -> Value {
-        let values: Vec<Value> = if parsed_terms.contains(&Term::CommaSeparator) {
+        let values: Vec<Value> = if parsed_terms.contains(&Term::PipeOperator) {
+            let mut ident = context.identity();
+            for terms in parsed_terms.split(|term| matches!(term, Term::PipeOperator)) {
+                let mut c = context.clone_value(Some(ident));
+                ident = self.traverse(&mut c, cache, terms);
+                context.current_file = c.current_file;
+                context.current_field = c.current_field;
+            }
+            vec![ident]
+        } else if parsed_terms.contains(&Term::CommaSeparator) {
             parsed_terms
                 .split(|term| matches!(term, Term::CommaSeparator))
-                .filter_map(|terms| self.traverse_terms_inner(&mut context.clone(), cache, terms))
+                .filter_map(|terms| Some(self.traverse(&mut context.clone(), cache, terms)))
                 .collect()
         } else {
             vec![self
@@ -66,12 +75,10 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                 .unwrap_or(Value::Empty)]
         };
 
-
-
         context.identity = match values.len() {
             0  => None,
             1  => values.into_iter().next(),
-            _ => Some(Value::List(values))
+            _ => Some(Value::Iterator(values))
         };
 
         context.identity()
@@ -153,9 +160,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                     Some(result)
                 },
                 Term::Contains(terms) => {
-                    let Some(inner) = self.traverse_terms_inner(&mut context.clone(), cache, terms) else { return None };
-
-                    match inner {
+                    match self.traverse(&mut context.clone(), cache, terms) {
                         Value::Str(substr) => {
                             let Some(value) = context.identity.take() else { return None };
                             let Value::Str(field_string) = value else { return None };
@@ -174,11 +179,11 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                     Some(self.to_iterable(context, cache))
                 }
                 Term::Calculate(lhs, op, rhs) => {
-                    let lhs_result = self.traverse_terms_inner(&mut context.clone(), cache, lhs);
-                    let rhs_result = self.traverse_terms_inner(&mut context.clone(), cache, rhs);
+                    let lhs_result = self.traverse(&mut context.clone(), cache, lhs);
+                    let rhs_result = self.traverse(&mut context.clone(), cache, rhs);
                     let result = match op {
-                        Operation::Addition => lhs_result.unwrap() + rhs_result.unwrap(),
-                        Operation::Subtraction => lhs_result.unwrap() - rhs_result.unwrap(),
+                        Operation::Addition => lhs_result + rhs_result,
+                        Operation::Subtraction => lhs_result - rhs_result,
                         _ => Value::Empty,
                     };
                     Some(result)
@@ -202,8 +207,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                         .collect();
                     self.traverse_terms_inner(context, cache, outer_terms);
 
-
-                    let initial = self.traverse_terms_inner(&mut context.clone_value(None), cache, init);
+                    let initial = self.traverse(&mut context.clone_value(None), cache, init);
                     let Some(variable) = vars.first() else {
                       return None;
                     };
@@ -214,7 +218,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                         .unwrap_or(&Value::Empty)
                         .clone();
 
-                    let mut reduce_context = context.clone_value(initial);
+                    let mut reduce_context = context.clone_value(Some(initial));
 
                     let result = reduce(value, &mut |acc, v| {
                         cache.variables.insert(variable.to_string(), v);
@@ -246,7 +250,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                     let result = self.traverse(&mut context.clone(), cache, &value_terms.to_vec());
                     trace!("Term::kv result: {:?} {:?}", key, result);
                     match key {
-                        Value::Empty | Value::List(_) => None,
+                        Value::Empty | Value::List(_) | Value::Iterator(_) => None,
                         _ => {
                             Some(Value::KeyValue(Box::new(key), Box::new(result)))
                         }
@@ -279,6 +283,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                     let result = self.traverse(context, cache, &arr_terms.to_vec());
                     match result {
                         Value::Empty => Some(Value::List(Vec::with_capacity(0))),
+                        Value::Iterator(values) => Some(Value::List(values)),
                         Value::List(_) => Some(result),
                         one_element => Some(Value::List(vec![one_element])),
                     }
@@ -289,7 +294,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                     Value::Iterator(iterable) => Some(Value::U64(iterable.len() as u64)),
                     Value::Object(data) => {
                         match *data {
-                            Value::List(pairs) => Some(Value::U64(pairs.len() as u64)),
+                            Value::List(pairs) | Value::Iterator(pairs) => Some(Value::U64(pairs.len() as u64)),
                             _ => Some(Value::U64(0))
                         }
                     }
@@ -299,7 +304,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                 Term::Keys => match context.identity() {
                     Value::Object(data) => {
                         match *data {
-                            Value::List(pairs) => {
+                            Value::List(pairs) | Value::Iterator(pairs) => {
                                 let keys = pairs.iter().filter_map(|kv| match kv {
                                     Value::KeyValue(key, _) => {
                                         match *key.clone() {
@@ -317,7 +322,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                     value => unimplemented!("Unsupported type '{:?}' for 'keys' operation", value)
                 },
                 Term::Key(terms) => {
-                    self.traverse_terms_inner(context, cache, terms)
+                    Some(self.traverse(context, cache, terms))
                 },
                 Term::StringLiteral(text) => {
                     Some(Value::Str(text.to_string()))
@@ -495,7 +500,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
             Value::Iterator(list) => Value::Iterator(list),
             Value::Object(content) => {
                 let fields = match *content {
-                    Value::List(fields) => fields,
+                    Value::List(fields) | Value::Iterator(fields) => fields,
                     unexpected => {
                         error!("Type {unexpected} cannot be iterated over");
                         process::exit(-1);
@@ -519,7 +524,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
         match context.identity.take().unwrap() {
             Value::Object(entries) => {
                 match *entries {
-                    Value::List(list) => {
+                    Value::List(list) | Value::Iterator(list) => {
                         let mut values = Vec::new();
                         for field in list {
                             if let Value::KeyValue(key, value) = field {
@@ -557,7 +562,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                         },
                         Value::Object(elements) => {
                             let obj = match *elements {
-                                Value::List(fields) => fields,
+                                Value::List(fields) | Value::Iterator(fields) => fields,
                                 unexpected => {
                                     error!("Type {unexpected} unexpected in Value::Object");
                                     process::exit(-1);

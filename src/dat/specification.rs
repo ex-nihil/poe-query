@@ -58,7 +58,43 @@ impl fmt::Display for FieldSpec {
 
 impl FileSpec {
     pub fn read_enum_specs(path: &Path) -> HashMap<String, EnumSpec> {
+        Self::read_specs_transform_definitions(path, |definition| {
+            match definition {
+                Definition::EnumTypeDefinition(obj) => {
+                    let enum_name = obj.name().unwrap().text();
 
+                    let mut index = 0;
+                    for directive in obj.directives().unwrap().directives() {
+                        if directive.name().unwrap().text().as_str() == "indexing" {
+                            let first = directive.arguments().unwrap().arguments().find(|x| x.name().unwrap().text() == "first").unwrap().value().unwrap().syntax().text().to_string();
+                            index = first.parse::<usize>().unwrap();
+                        }
+                    }
+                    let mut values = Vec::new();
+                    for field in obj.enum_values_definition().unwrap().enum_value_definitions() {
+                        let value = field.enum_value().unwrap().name().unwrap().text();
+                        values.push(value.to_string())
+                    }
+
+                    Some((
+                        enum_name.to_string(),
+                        EnumSpec {
+                            enum_name: enum_name.to_string(),
+                            first_index: index,
+                            enum_values: values,
+                        }
+                    ))
+                },
+                Definition::ObjectTypeDefinition(_) => None,
+                def => unimplemented!("Unhandled definition: {:?}", def),
+            }
+        })
+    }
+
+    fn read_specs_transform_definitions<F, T>(path: &Path, transform: F) -> HashMap<String, T>
+        where
+            F: Fn(Definition) -> Option<(String, T)>,
+    {
         std::fs::read_dir(path).expect("spec path does not exist")
             .filter_map(|directory| directory.ok().map(|entry| entry.path()))
             .filter(|file_path| file_path.is_file() && file_path.extension().expect("gql file not found").to_string_lossy() == "gql")
@@ -71,60 +107,9 @@ impl FileSpec {
                 assert_eq!(ast.errors().len(), 0);
                 ast.document().definitions()
             })
-            .filter_map(|definition| {
-                match definition {
-                    Definition::ObjectTypeDefinition(_) => None,
-                    Definition::EnumTypeDefinition(obj) => {
-                        let enum_name = obj.name().unwrap().text();
-
-                        let mut index = 0;
-                        for directive in obj.directives().unwrap().directives() {
-                            if directive.name().unwrap().text().as_str() == "indexing" {
-                                let first = directive.arguments().unwrap().arguments().find(|x| x.name().unwrap().text() == "first").unwrap().value().unwrap().syntax().text().to_string();
-                                index = first.parse::<usize>().unwrap();
-                            }
-                        }
-                        let mut values = Vec::new();
-                        for field in obj.enum_values_definition().unwrap().enum_value_definitions() {
-                            let value = field.enum_value().unwrap().name().unwrap().text();
-                            values.push(value.to_string())
-                        }
-
-                        Some((
-                            enum_name.to_string(),
-                            EnumSpec {
-                                enum_name: enum_name.to_string(),
-                                first_index: index,
-                                enum_values: values,
-                            }
-                        ))
-                    }
-                    def => unimplemented!("Unhandled definition: {:?}", def),
-                }
-            }).collect::<HashMap<_, _>>()
-    }
-
-    pub fn read_specs_transform_definitions<F, T>(path: &Path, transform: F) -> HashMap<String, T>
-        where
-            F: Fn(Definition) -> Option<(String, T)>,
-    {
-        let specs: HashMap<_, T> = std::fs::read_dir(path).expect("spec path does not exist")
-            .filter_map(|directory| directory.ok().map(|entry| entry.path()))
-            .filter(|file_path| file_path.is_file() && file_path.extension().expect("gql file not found").to_string_lossy() == "gql")
-            .flat_map(|file_path| {
-                let text = std::fs::read_to_string(file_path).unwrap();
-
-                let parser = Parser::new(&text);
-                let ast = parser.parse();
-
-                assert_eq!(ast.errors().len(), 0);
-                ast.document().definitions()
-            })
             .filter_map(transform)
-            .collect();
-        specs
+            .collect()
     }
-
 
 
     pub fn read_file_specs(path: &Path, enum_specs: &HashMap<String, EnumSpec>, file_specs: &HashMap<String, FileSpec>) -> HashMap<String, FileSpec> {
@@ -150,7 +135,7 @@ impl FileSpec {
                                 // @ref(column: "Id")
                                 if directive.name().unwrap().text().as_str() == "ref" {
                                     let first = directive.arguments().unwrap().arguments().find(|x| x.name().unwrap().text() == "column").unwrap().value().unwrap().syntax().text().to_string();
-                                    reference_key = Some(first.replace("\"",""));
+                                    reference_key = Some(first.replace("\"", ""));
                                 }
                             }
                         }
@@ -186,7 +171,7 @@ impl FileSpec {
 
                         if reference_key.is_some() && key_file.is_some() {
                             match file_specs.get(key_file.as_ref().unwrap()) {
-                                None => {},
+                                None => {}
                                 Some(file_spec) => {
                                     type_name = file_spec.file_fields.iter()
                                         .find(|x| Some(&x.field_name) == reference_key.as_ref())
@@ -210,7 +195,7 @@ impl FileSpec {
                                             .unwrap_or_else(|| 16)
                                     }
                                 }
-                            },
+                            }
                             _ if enum_spec.is_some() => 4,
                             t if t == filename => 8, // self reference
                             _ => 16,
