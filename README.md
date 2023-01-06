@@ -12,16 +12,13 @@ The spec should be placed in a `dat-schema` folder in the same directory as the 
 
 Iterate over all `Id` fields in `Mods.dat`
 ```sh 
-$ poe_query .Mods[].Id
+$ poe_query .Mods[1].Id
 "Strength1"
 ```
 
 Traverse through a foreign key. (`Name` taken from `ModType[364]`)
 ```sh
-$ poe_query .Mods[0].ModTypeKey
-364
-
-poe_query .Mods[0].ModTypeKey.Name
+$ poe_query .Mods[0].ModTypeKey.Name
 "Strength"
 ```
 
