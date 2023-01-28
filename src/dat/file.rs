@@ -5,6 +5,7 @@ use log::*;
 use std::io::Cursor;
 use std::process;
 use crate::traversal::value::Value;
+use crate::traversal::value::Value::U64;
 
 use super::specification::FieldSpec;
 use super::specification::FileSpec;
@@ -137,16 +138,14 @@ impl DatFile {
 
         let mut cursor = Cursor::new(&self.bytes[exact_offset..]);
         (0..len).map(|_| {
-            if data_type == "string" ||  data_type == "path" {
-                match cursor.u32() {
-                    Value::U64(offset) => {
-                        let mut text_cursor = Cursor::new(&self.bytes[(self.data_section + offset as usize)..]);
-                        text_cursor.read_value(data_type)
-                    },
-                    _ => panic!("failed reading u32 offset")
-                }
-            } else {
-                cursor.read_value(data_type)
+            match data_type {
+                "string" | "path" => {
+                    let U64(offset) = cursor.u64() else { panic!("Unable to read offset to string list element") };
+                    let mut text_cursor = Cursor::new(&self.bytes[(self.data_section + offset as usize)..]);
+                    text_cursor.read_value(data_type)
+
+                },
+                _ => cursor.read_value(data_type)
             }
         }).collect()
     }

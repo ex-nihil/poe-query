@@ -158,7 +158,6 @@ impl FileSpec {
                         let enum_spec = enum_specs.get(type_name.as_str());
 
                         let mut type_name = match type_name.as_str() {
-                            "rid" => "u64".to_string(),
                             _ if is_path_field => "path".to_string(),
                             _ => type_name
                         };
@@ -184,7 +183,7 @@ impl FileSpec {
                         let mut field_size: usize = match type_name.as_str() {
                             "bool" | "u8" => 1,
                             "u32" | "i32" | "f32" => 4,
-                            "i64" | "u64" | "string" => 8,
+                            "i64" | "u64" | "string" | "path" => 8,
                             _ if reference_key.is_some() && key_file.is_some() => {
                                 match file_specs.get(key_file.as_ref().unwrap()) {
                                     None => 16,
@@ -204,7 +203,6 @@ impl FileSpec {
                         if is_list {
                             field_size = 16;
                         }
-
                         offset += field_size;
 
 
