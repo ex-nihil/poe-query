@@ -1,0 +1,10 @@
+type HideoutNPCs {
+  Hideout_NPC: NPCs
+  HideoutDoodad: HideoutDoodads @unique
+  _: rid
+  _: rid
+  _: i32
+  _: rid
+  _: i32
+  _: rid
+}

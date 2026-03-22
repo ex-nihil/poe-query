@@ -14,7 +14,7 @@ type HeistAreaFormationLayout {
   _: i32
 }
 
-type HeistAreas {
+type HeistAreas @tags(list: ["item:droptable"]) {
   Id: string @unique
   WorldAreasKeys: [WorldAreas]
   _: i32
@@ -29,9 +29,11 @@ type HeistAreas {
   _: bool
   _: bool
   Blueprint_DDSFile: string @file(ext: ".dds")
-  AchievementItemsKeys: [AchievementItems]
-  AchievementItemsKeys2: [AchievementItems]
-  ClientStringsKey: ClientStrings
+  Achievements1: [AchievementItems]
+  Achievements2: [AchievementItems]
+  Reward: ClientStrings
+  Achievements3: [AchievementItems]
+  RewardHardmode: ClientStrings
 }
 
 type HeistBalancePerLevel {
@@ -72,6 +74,7 @@ type HeistChestRewardTypes {
   RewardRoomName2: string
   HeistJobsKey: [HeistJobs]
   _: i32
+  _: i32
 }
 
 type HeistChests {
@@ -110,8 +113,8 @@ type HeistContracts {
 
 type HeistDoodadNPCs {
   NPCsKey: NPCs
-  _: i32
-  _: i32
+  _: rid
+  _: rid
   _: i32
   _: i32
   _: i32
@@ -132,7 +135,7 @@ type HeistDoors {
   HeistAreasKey: HeistAreas
 }
 
-type HeistEquipment {
+type HeistEquipment @tags(list: ["item:def"]) {
   BaseItemTypesKey: BaseItemTypes @unique
   RequiredJob_HeistJobsKey: HeistJobs
   RequiredLevel: i32

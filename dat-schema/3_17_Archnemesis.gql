@@ -1,4 +1,3 @@
-
 type ArchnemesisMetaRewards {
   Id: string
   RewardText: string @localized
@@ -15,7 +14,6 @@ type ArchnemesisModComboAchievements {
 
 type ArchnemesisMods {
   Mod: Mods
-  _: i32
   Name: string @localized
   Visual: ArchnemesisModVisuals
   TextStyles: [string]

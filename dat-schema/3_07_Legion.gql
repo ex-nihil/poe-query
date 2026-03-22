@@ -1,8 +1,8 @@
-type Incubators {
+type Incubators @tags(list: ["item:def"]) {
   BaseItemTypesKey: BaseItemTypes @unique
   _: i32
   Description: string
-  Hash: i32
+  HASH16: i32
   AchievementItemsKeys: [AchievementItems]
 }
 
@@ -20,6 +20,17 @@ type LegionBalancePerLevel {
   _: i32
   _: i32
   _: i32
+  _: f32
+  _: i32
+  _: i32
+}
+
+type LegionChestTypes {
+  _: MonsterVarieties
+  Chest: Chests
+  HardmodeChest: Chests
+  _: i32
+  Faction: LegionFactions
 }
 
 type LegionChestCounts {
@@ -33,17 +44,9 @@ type LegionChestCounts {
   _: i32
 }
 
-type LegionChests {
-  ChestsKey: Chests
-  LegionFactionsKey: LegionFactions
-  LegionRanksKey: LegionRanks
-  MonsterVarietiesKey: MonsterVarieties
-  _: i32
-}
-
 type LegionFactions {
   Id: string @unique
-  _: i32
+  SpawnWeight: i32
   LegionBalancePerLevelKey: LegionBalancePerLevel
   _: f32
   _: f32
@@ -59,6 +62,7 @@ type LegionFactions {
   AchievementItemsKeys2: [AchievementItems]
   StatsKey: Stats
   Shard: string
+  RewardJewelArt: string
 }
 
 type LegionMonsterCounts {
@@ -101,6 +105,7 @@ type LegionRanks {
   _: i32
   _: i32
   LegionBalancePerLevelKey: LegionBalancePerLevel
+  _: i32
   _: i32
   _: i32
 }

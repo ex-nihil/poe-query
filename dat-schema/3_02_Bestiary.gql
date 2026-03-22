@@ -1,7 +1,6 @@
-type BestiaryCapturableMonsters {
+type BestiaryCapturableMonsters @tags(list: ["item:itemized"]) {
   MonsterVarietiesKey: MonsterVarieties
   BestiaryGroupsKey: BestiaryGroups
-  Name: string
   BestiaryEncountersKey: BestiaryEncounters
   _: bool
   IconSmall: string
@@ -17,9 +16,6 @@ type BestiaryCapturableMonsters {
 
 type BestiaryEncounters {
   Id: string @unique
-  MinLevel: i32
-  MaxLevel: i32
-  SpawnWeight: i32
   MonsterPacksKey: MonsterPacks
   MonsterVarietiesKey: MonsterVarieties
   MonsterSpawnerId: string @files(ext: [".ot", ".otc"])
@@ -81,15 +77,28 @@ type BestiaryRecipeComponent {
   BestiaryGenusKey: BestiaryGenus
 }
 
-type BestiaryRecipes {
+type BestiaryRecipeCategories {
+  Id: string
+  Text: string
+}
+
+type BestiaryRecipes @tags(list: ["item:recipe", "crafting"]) {
   Id: string @unique
   Description: string
   BestiaryRecipeComponentKeys: [BestiaryRecipeComponent]
   Notes: string
-  HintText: string
+  Category: BestiaryRecipeCategories
   _: bool
-  AchievementItemsKeys: [AchievementItems]
+  Achievements: [AchievementItems]
   _: bool
   _: i32
-  RedBeastsRequired: i32
+  _: i32
+  "0: All, 1: Normal, 2: Ruthless"
+  GameMode: i32
+  FlaskMod: Mods
+}
+
+type NetTiers {
+  BaseItemTypesKey: BaseItemTypes
+  Tier: i32
 }

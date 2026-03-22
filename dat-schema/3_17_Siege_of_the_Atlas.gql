@@ -1,4 +1,3 @@
-
 type AtlasPrimordialAltarChoices {
   Mod: Mods
   Type: AtlasPrimordialAltarChoiceTypes
@@ -23,7 +22,7 @@ type AtlasPrimordialBosses {
   InfluenceComplete: MiscAnimated
   MiniBossInvitation: BaseItemTypes
   BossInvitation: BaseItemTypes
-  _: i32
+  PickUpKey: QuestFlags
   _: rid
   _: rid
   Tag: Tags
@@ -39,7 +38,7 @@ type AtlasPrimordialBossInfluence {
   _: i32
   _: rid
   _: f32
-  _: i32
+  _: QuestFlags
 }
 
 type AtlasPrimordialBossOptions {
@@ -54,6 +53,7 @@ type AtlasPrimordialBossOptions {
   ProgressTracker: string
   ProgressTrackerFill: string
   Name: string @localized
+  MapDeviceTrackerFill: string
 }
 
 type PrimordialBossLifeScalingPerLevel {
@@ -67,7 +67,7 @@ type AtlasUpgradesInventoryLayout {
   Voidstone: BaseItemTypes
   _: i32
   Objective: string
-  _: i32
+  GrantAtlasUpgrade: QuestFlags
   _: rid
 }
 
@@ -80,7 +80,7 @@ type KiracLevels {
   _: i32
 }
 
-type ScoutingReports {
+type ScoutingReports @tags(list: ["item:def"]) {
   Id: string
   BaseItemType: BaseItemTypes
   MinMapTier: i32

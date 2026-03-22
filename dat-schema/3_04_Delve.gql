@@ -3,7 +3,9 @@ type DelveAzuriteShop {
   SpawnWeight: i32
   Cost: i32
   MinDepth: i32
-  IsEnabled: bool
+  IsResonator: bool
+  _: i32
+  _: i32
 }
 
 type DelveBiomes {
@@ -31,7 +33,7 @@ type DelveCraftingModifierDescriptions {
   Description: string
 }
 
-type DelveCraftingModifiers {
+type DelveCraftingModifiers @tags(list: ["crafting"]) {
   BaseItemTypesKey: BaseItemTypes
   AddedModsKeys: [Mods]
   NegativeWeight_TagsKeys: [Tags]
@@ -42,7 +44,6 @@ type DelveCraftingModifiers {
   CanMirrorItem: bool
   CorruptedEssenceChance: i32
   CanImproveQuality: bool
-  CanRollEnchant: bool
   HasLuckyRolls: bool
   SellPrice_ModsKeys: [Mods]
   CanRollWhiteSockets: bool
@@ -54,6 +55,7 @@ type DelveCraftingModifiers {
   _: bool
   _: [i32]
   _: [i32]
+  _: bool
 }
 
 type DelveCraftingTags {
@@ -91,6 +93,7 @@ type DelveFeatures {
   _: [i32]
   _: [i32]
   _: [i32]
+  _: [_]
 }
 
 type DelveFlares {
@@ -109,8 +112,8 @@ type DelveLevelScaling {
   _: i32
   SulphiteCost: i32
   MonsterLevel2: i32
-  MoreMonsterLife: i32
   MoreMonsterDamage: i32
+  MoreMonsterLife: i32
   DarknessResistance: i32
   LightRadius: i32
   _: i32
@@ -185,4 +188,15 @@ type DelveUpgrades {
   _: i32
 }
 
-enum DelveUpgradeType @indexing(first: 0) { _ }
+enum DelveUpgradeType @indexing(first: 0) {
+  SULPHITE_CAPACITY
+  FLARE_CAPACITY
+  DYNAMITE_CAPACITY
+  CART_LIGHT_RADIUS
+  FLARE_LIGHT_RADIUS
+  DYNAMITE_RADIUS
+  _
+  DYNAMITE_DAMAGE
+  DARKNESS_RESISTANCE
+  FLARE_DURATION
+}
