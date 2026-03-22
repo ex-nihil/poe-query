@@ -1,0 +1,6 @@
+type TieredCurrency {
+  BaseItemType: BaseItemTypes @unique
+  Tier: i32
+  MinimumModLevel: i32
+  LowerTierBaseItemType: BaseItemTypes
+}

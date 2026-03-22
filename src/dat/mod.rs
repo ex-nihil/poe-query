@@ -35,10 +35,11 @@ impl<'a> DatReader<'a> {
     }
 
     fn get_filepath(&self, filename: &str) -> String {
+        let name = filename.to_lowercase();
         if self.language == "English" {
-            return format!("Data/{}.dat64", filename)
+            return format!("data/{}.datc64", name)
         }
-        format!("Data/{}/{}.dat64", self.language, filename)
+        format!("data/{}/{}.datc64", self.language.to_lowercase(), name)
     }
 }
 

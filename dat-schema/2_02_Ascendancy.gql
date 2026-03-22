@@ -23,6 +23,7 @@ type LabyrinthIzaroChests {
   SpawnWeight: i32
   MinLabyrinthTier: i32
   MaxLabyrinthTier: i32
+  _: i32
 }
 
 type LabyrinthNodeOverrides {
@@ -37,7 +38,7 @@ type LabyrinthRewardTypes {
   ObjectPath: string @files(ext: [".ot", ".otc"])
 }
 
-type Labyrinths {
+type Labyrinths @tags(list: ["item:droptable", "item:unique"]) {
   Tier: i32
   Name: string
   OfferingItem: BaseItemTypes
@@ -60,6 +61,7 @@ type LabyrinthSecretEffects {
   Buff_BuffDefinitionsKey: BuffDefinitions
   Buff_StatValues: [i32]
   OTFile: string @file(ext: ".ot")
+  _: [_]
 }
 
 enum LabyrinthSecretLocations @indexing(first: 0) { _ }
@@ -118,6 +120,9 @@ type LabyrinthTrials {
   _: string
   _: string
   _: i32
+  _: i32 # All rows empty
+  _: i32 # All rows empty
+  _: i32 # All rows empty
 }
 
 type LabyrinthTrinkets {
@@ -125,4 +130,27 @@ type LabyrinthTrinkets {
   LabyrinthSecretsKey: [LabyrinthSecrets]
   Buff_BuffDefinitionsKey: BuffDefinitions
   Buff_StatValues: [i32]
+}
+
+enum LabyrinthCraftOptionFamily @indexing(first: 0) { _ }
+
+type LabyrinthCraftOptions {
+  Id: string
+  CraftFamily: LabyrinthCraftOptionFamily
+  Text: string
+  Script: string
+  ScriptArgument: string
+  HASH16: i16
+  _: bool
+  Tier: LabyrinthCraftOptionTiers
+  _: bool
+  Achievement: [AchievementItems]
+  _: bool
+  _: rid
+  _: i32
+}
+
+type LabyrinthCraftOptionTiers {
+  Id: string
+  CraftIcon: string
 }

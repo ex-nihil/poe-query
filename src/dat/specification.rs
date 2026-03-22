@@ -97,7 +97,7 @@ impl FileSpec {
     {
         std::fs::read_dir(path).expect("spec path does not exist")
             .filter_map(|directory| directory.ok().map(|entry| entry.path()))
-            .filter(|file_path| file_path.is_file() && file_path.extension().expect("gql file not found").to_string_lossy() == "gql")
+            .filter(|file_path| file_path.is_file() && file_path.extension().map_or(false, |ext| ext == "gql"))
             .flat_map(|file_path| {
                 let text = std::fs::read_to_string(file_path).unwrap();
 

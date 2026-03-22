@@ -1,0 +1,16 @@
+# Added 4.1
+type MonsterShapeShift {
+  Id: i32 @unique
+  _: rid
+  _: rid
+  _: rid
+  _: rid
+  _: [string]
+  _: [string]
+  _: [string]
+  _: [string]
+  _: rid
+  _: rid
+  _: string
+  _: string
+}

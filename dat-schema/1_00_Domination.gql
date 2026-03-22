@@ -1,22 +1,15 @@
-type ShrineBuffs {
-  Id: string @unique
-  BuffStatValues: [i32]
-  BuffDefinitionsKey: BuffDefinitions
-  BuffVisual: BuffVisuals
-}
-
 type Shrines {
   Id: string @unique
   TimeoutInSeconds: i32
   ChargesShared: bool
-  Player_ShrineBuffsKey: ShrineBuffs
+  Player_ShrineBuffsKey: rid
   _: i32
   _: i32
-  Monster_ShrineBuffsKey: ShrineBuffs
+  Monster_ShrineBuffsKey: rid
   SummonMonster_MonsterVarietiesKey: MonsterVarieties
   SummonPlayer_MonsterVarietiesKey: MonsterVarieties
   _: i32
-  _: i32
+  Duration: i32
   ShrineSoundsKey: ShrineSounds
   _: bool
   AchievementItemsKeys: [AchievementItems]
@@ -26,6 +19,8 @@ type Shrines {
   Description: ClientStrings
   Name: ClientStrings
   _: bool
+  _: rid
+  _: [_]
 }
 
 type ShrineSounds {

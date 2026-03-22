@@ -1,18 +1,18 @@
 type DroneBaseTypes {
-  BaseType: BaseItemTypes
+  BaseType: BaseItemTypes @unique
   Type: DroneTypes
-  _: i32
-  _: i32
-  _: i32
+  Charges: i32
+  Duration: i32
+  EnemyLimit: i32
   Visual: BuffVisuals
-  _: i32
+  Empowerment: i32
   UseAchievement: AchievementItems
-  _: bool
+  CreatedViaPowerCore: bool
 }
 
 type DroneTypes {
   Id: string
-  _: i32
+  _: QuestFlags
   _: MonsterVarieties
   DeployText: string
   _: string
@@ -69,17 +69,17 @@ type SentinelPowerExpLevels {
 
 type SentinelStorageLayout {
   Id: string
-  _: BaseItemTypes
+  StoredItem: BaseItemTypes
   DroneType: DroneTypes
   _: bool
-  _: string
+  TabIcon: string
+  XOffset: i32
+  YOffset: i32
   _: i32
   _: i32
-  _: i32
-  _: i32
-  _: i32
-  _: i32
-  _: i32
+  Width: i32
+  Height: i32
+  SlotSize: i32
   _: ItemClasses
 }
 

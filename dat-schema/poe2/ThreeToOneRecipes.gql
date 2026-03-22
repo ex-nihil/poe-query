@@ -1,0 +1,8 @@
+type ThreeToOneRecipes {
+  _: string @unique
+  InputBaseItem: BaseItemTypes @unique
+  OutputBaseItem: BaseItemTypes
+  _: i32
+  _: rid
+  UpgradableInStashes: [StashId]
+}
