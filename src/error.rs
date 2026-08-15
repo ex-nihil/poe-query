@@ -62,3 +62,20 @@ fn suggestion_suffix(suggestion: &Option<String>) -> String {
         None => String::new(),
     }
 }
+
+/// Best fuzzy match for a misspelled table or column name, used to build
+/// "Did you mean ...?" suggestions.
+pub fn closest_name<'a, I>(target: &str, candidates: I) -> Option<String>
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let target = target.to_lowercase();
+    let mut best: Option<(f64, &str)> = None;
+    for candidate in candidates {
+        let score = strsim::jaro_winkler(&target, &candidate.to_lowercase());
+        if score >= 0.85 && best.map_or(true, |(best_score, _)| score > best_score) {
+            best = Some((score, candidate));
+        }
+    }
+    best.map(|(_, name)| name.to_string())
+}

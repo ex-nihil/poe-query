@@ -8,7 +8,7 @@ use crate::Term;
 use crate::dat::file::DatFile;
 use crate::dat::DatStoreImpl;
 use crate::dat::specification::{FieldSpecImpl, FileSpec, FileSpecImpl};
-use crate::error::QueryError;
+use crate::error::{closest_name, QueryError};
 use crate::query::{Compare, Operation};
 use crate::traversal::{StaticContext, QueryProcessor};
 use crate::traversal::utils::{iterate, reduce};
@@ -84,8 +84,16 @@ impl<'a> StaticContext<'a> {
     /// Read a single column of a single row, loading the file on first use.
     fn read_row_field(&self, cache: &mut SharedCache, file_name: &str, row: u64, field_name: &str) -> Result<Value, QueryError> {
         let Some(store) = self.store else { return Ok(Value::Empty) };
-        let Some(spec) = store.spec(file_name) else { return Ok(Value::Empty) };
-        let Some(field) = spec.field(field_name) else { return Ok(Value::Empty) };
+        let spec = store.spec(file_name)
+            .ok_or_else(|| QueryError::internal(format!("no specification for table '{}'", file_name)))?;
+        let Some(field) = spec.field(field_name) else {
+            let suggestion = closest_name(field_name, spec.file_fields.iter().map(|f| f.field_name.as_str()));
+            return Err(QueryError::UnknownColumn {
+                table: file_name.to_string(),
+                column: field_name.to_string(),
+                suggestion,
+            });
+        };
         let file = self.cached_file(cache, file_name)?;
         file.read_field(row, field)
     }
@@ -104,6 +112,9 @@ struct TraversalContext {
     current_field: Option<String>,
     current_file: Option<String>,
     identity: Option<Value>,
+    /// identity currently holds the synthetic root table listing produced by
+    /// a bare `.`, so a following name lookup is a table lookup
+    root_listing: bool,
 }
 
 trait DataTraverser<'a> {
@@ -351,6 +362,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                                 Box::new(Value::List(vec![])),
                             ));
                         }
+                        context.root_listing = true;
                         Some(Value::Object(Box::new(Value::List(exports))))
                     } else {
                         context.identity.take()
@@ -472,6 +484,8 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
         let spec: Option<&FileSpec> = self.store.and_then(|s| s.spec_by_export(name))
             .or_else(|| self.store.and_then(|s| s.spec_by_export(context.current_file.as_deref().unwrap_or(""))));
 
+        let from_root = context.root_listing;
+        context.root_listing = false;
         self.enter_foreign(context, cache)?;
         if let (Some(spec), None) = (spec, &context.current_file) {
             // the file is only loaded for its row count; fields are read lazily
@@ -486,6 +500,15 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
             context.current_file = Some(spec.file_name.to_string());
             context.identity = Some(Value::List(values));
         } else {
+            // a bare name at the root can only be a table; anything else is a
+            // hard error so a misspelling doesn't silently turn into null
+            if context.current_file.is_none() && (context.identity.is_none() || from_root) {
+                if let Some(store) = self.store {
+                    let tables = store.exports();
+                    let suggestion = closest_name(name, tables.iter().copied());
+                    return Err(QueryError::UnknownTable { name: name.to_string(), suggestion });
+                }
+            }
             context.current_field = Some(name.to_string());
             context.identity = Some(self.value(context, cache)?);
         }
@@ -789,6 +812,7 @@ impl TraversalContext {
             current_field: self.current_field.clone(),
             current_file: self.current_file.clone(),
             identity: ident,
+            root_listing: false,
         }
     }
 

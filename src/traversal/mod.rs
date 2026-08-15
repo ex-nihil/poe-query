@@ -1,4 +1,5 @@
-use crate::{DatReader, Term};
+use crate::Term;
+use crate::dat::DatStoreImpl;
 use crate::error::QueryError;
 
 pub mod value;
@@ -14,13 +15,13 @@ pub trait QueryProcessor {
 /** Immutable data during traversal */
 #[derive(Default)]
 pub struct StaticContext<'a> {
-    store: Option<&'a DatReader<'a>>,
+    store: Option<&'a dyn DatStoreImpl<'a>>,
 }
 
 impl<'a> StaticContext<'a> {
-    pub fn new(reader: &'a DatReader<'a>) -> Self {
+    pub fn new(store: &'a dyn DatStoreImpl<'a>) -> Self {
         StaticContext {
-            store: Some(reader)
+            store: Some(store)
         }
     }
 }

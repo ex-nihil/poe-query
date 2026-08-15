@@ -1,3 +1,5 @@
+pub mod store;
+
 use poe_query_lib::{query, query::Term};
 use poe_query_lib::error::QueryError;
 use poe_query_lib::traversal::{QueryProcessor, StaticContext, value::Value};
