@@ -7,6 +7,7 @@ use poe_bundle::{BundleReader, BundleReaderRead};
 use crate::dat::file::DatFile;
 use crate::dat::specification::{EnumSpec, FileSpec};
 use crate::error::QueryError;
+use crate::translate::StatDescriptions;
 
 pub mod util;
 pub mod specification;
@@ -48,6 +49,38 @@ impl<'a> DatReader<'a> {
         &self.specs
     }
 
+    pub fn language(&self) -> &str {
+        self.language
+    }
+
+    /// Read a UTF-16 text file (e.g. stat descriptions) from the bundles.
+    pub fn read_text_file(&self, path: &str) -> Result<String, QueryError> {
+        // bytes() panics on paths missing from the index, so gate the read
+        if self.bundle_reader.size_of(path).is_none() {
+            return Err(QueryError::MissingDataFile { table: path.to_string() });
+        }
+        let bytes = self.bundle_reader.bytes(path)
+            .map_err(|error| QueryError::internal(format!("failed to read '{}': {}", path, error)))?;
+        Ok(decode_utf16(&bytes))
+    }
+
+    /// Load and parse a stat description file, following include directives.
+    /// `file` is the base name, default "stat_descriptions".
+    pub fn stat_descriptions(&self, file: Option<&str>) -> Result<StatDescriptions, QueryError> {
+        let name = file.unwrap_or("stat_descriptions");
+        let name = name.strip_suffix(".txt").or(name.strip_suffix(".csd")).unwrap_or(name);
+
+        let mut path = format!("metadata/statdescriptions/{}.csd", name.to_lowercase());
+        if self.bundle_reader.size_of(&path).is_none() {
+            path = format!("metadata/statdescriptions/{}.txt", name.to_lowercase());
+        }
+
+        let text = self.read_text_file(&path)?;
+        StatDescriptions::parse_with(&text, &mut |include: &str| {
+            self.read_text_file(&include.to_lowercase())
+        })
+    }
+
     fn get_filepath(&self, filename: &str) -> String {
         let name = filename.to_lowercase();
         if self.language == "English" {
@@ -70,6 +103,10 @@ impl<'a> DatStoreImpl<'a> for DatReader<'a> {
         let path = self.get_filepath(filename);
         let spec = self.spec(filename);
         info!("Unpacking {}", path);
+        // bytes() panics on paths missing from the index, so gate the read
+        if self.bundle_reader.size_of(&path).is_none() {
+            return Err(QueryError::MissingDataFile { table: filename.to_string() });
+        }
         let bytes = self.bundle_reader.bytes(&path)
             .map_err(|_| QueryError::MissingDataFile { table: filename.to_string() })?;
 
@@ -95,5 +132,21 @@ impl<'a> DatStoreImpl<'a> for DatReader<'a> {
 
     fn enum_name(&self, path: &str) -> Option<&EnumSpec> {
         self.enums.get(path)
+    }
+}
+
+/// Decode game text files: UTF-16LE with BOM, BOM-less UTF-16LE heuristic,
+/// or plain UTF-8 fallback.
+fn decode_utf16(bytes: &[u8]) -> String {
+    let has_bom = bytes.len() >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE;
+    let looks_utf16 = bytes.len() >= 2 && bytes[1] == 0;
+    if has_bom || looks_utf16 {
+        let start = if has_bom { 2 } else { 0 };
+        let units: Vec<u16> = bytes[start..].chunks_exact(2)
+            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .collect();
+        String::from_utf16_lossy(&units)
+    } else {
+        String::from_utf8_lossy(bytes).to_string()
     }
 }

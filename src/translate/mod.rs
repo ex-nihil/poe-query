@@ -1,0 +1,567 @@
+use std::collections::HashMap;
+
+use serde::Serialize;
+
+use crate::error::QueryError;
+
+/// Parsed stat description file(s): maps stat ids plus values to the
+/// human-readable text shown in game ("+25 to maximum Life").
+///
+/// File format reference: Metadata/StatDescriptions/*.txt, UTF-16LE text of
+/// `description` blocks. Each block names 1..n stat ids and holds per-language
+/// variant lines: value conditions, a quoted display string with {i}
+/// placeholders, and trailing value handlers like `negate 1`.
+#[derive(Debug)]
+pub struct StatDescriptions {
+    descriptions: Vec<Description>,
+    /// stat id -> index into descriptions; later definitions override earlier
+    by_stat: HashMap<String, usize>,
+    hidden: std::collections::HashSet<String>,
+}
+
+#[derive(Debug)]
+struct Description {
+    stats: Vec<String>,
+    /// language name -> variants; "English" always present
+    variants: HashMap<String, Vec<Variant>>,
+}
+
+#[derive(Debug, Clone)]
+struct Variant {
+    conditions: Vec<Condition>,
+    text: String,
+    handlers: Vec<Handler>,
+    /// context markers between the conditions and the string, e.g.
+    /// `gem_quality`; tagged variants only apply in special UI contexts and
+    /// are excluded from normal selection
+    tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct Condition {
+    min: Option<i64>,
+    max: Option<i64>,
+    negated_value: Option<i64>,
+}
+
+#[derive(Debug, Clone)]
+struct Handler {
+    kind: HandlerKind,
+    /// 1-based stat index the handler applies to (defaults to 1)
+    index: Option<usize>,
+}
+
+/// One stat id with its value range; a single value has min == max.
+pub struct StatValue {
+    pub id: String,
+    pub min: f64,
+    pub max: f64,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+pub struct Translation {
+    /// display lines in input-stat order
+    pub lines: Vec<String>,
+    /// stat ids no description block knows about
+    pub unmatched: Vec<String>,
+    /// stat ids the game intentionally does not display (no_description)
+    pub hidden: Vec<String>,
+}
+
+impl StatDescriptions {
+    /// Parse a stat description file that contains no include directives.
+    pub fn parse(text: &str) -> Result<StatDescriptions, QueryError> {
+        Self::parse_with(text, &mut |path: &str| {
+            Err(QueryError::internal(format!("unresolved include '{}'", path)))
+        })
+    }
+
+    /// Parse a stat description file, resolving `include "path"` directives
+    /// through the given loader (which returns the decoded file content).
+    pub fn parse_with<F>(text: &str, resolve_include: &mut F) -> Result<StatDescriptions, QueryError>
+    where
+        F: FnMut(&str) -> Result<String, QueryError>,
+    {
+        let mut result = StatDescriptions {
+            descriptions: Vec::new(),
+            by_stat: HashMap::new(),
+            hidden: std::collections::HashSet::new(),
+        };
+        result.parse_into(text, resolve_include)?;
+        Ok(result)
+    }
+
+    fn parse_into<F>(&mut self, text: &str, resolve_include: &mut F) -> Result<(), QueryError>
+    where
+        F: FnMut(&str) -> Result<String, QueryError>,
+    {
+        let mut lines = text.lines()
+            .map(|line| line.trim_end_matches('\r'))
+            .enumerate()
+            .peekable();
+
+        while let Some((number, line)) = lines.next() {
+            let trimmed = line.trim();
+            if trimmed.is_empty()
+                || trimmed == "has_identifiers"
+                || trimmed == "no_identifiers"
+                || trimmed.starts_with('"') {
+                continue;
+            }
+            if let Some(id) = trimmed.strip_prefix("no_description ") {
+                self.hidden.insert(id.trim().to_string());
+                continue;
+            }
+            if let Some(path) = trimmed.strip_prefix("include ") {
+                let path = path.trim().trim_matches('"');
+                let included = resolve_include(path)?;
+                self.parse_into(&included, resolve_include)?;
+                continue;
+            }
+            // handed_description declares two stat lists (main and off hand)
+            // that share one set of variant lines
+            let stat_line_count = if trimmed == "description" || trimmed.starts_with("description ") {
+                Some(1)
+            } else if trimmed == "handed_description" || trimmed.starts_with("handed_description ") {
+                Some(2)
+            } else {
+                None
+            };
+            if let Some(stat_line_count) = stat_line_count {
+                let descriptions = parse_description(&mut lines, stat_line_count)
+                    .map_err(|message| QueryError::internal(
+                        format!("stat descriptions line {}: {}", number + 1, message)))?;
+                for description in descriptions {
+                    let index = self.descriptions.len();
+                    for stat in &description.stats {
+                        self.by_stat.insert(stat.clone(), index);
+                    }
+                    self.descriptions.push(description);
+                }
+                continue;
+            }
+            // unknown directives shouldn't make the whole file unusable
+            log::warn!("stat descriptions line {}: skipping unexpected '{}'", number + 1, trimmed);
+        }
+        Ok(())
+    }
+
+    pub fn translate(&self, stats: &[StatValue], language: &str) -> Translation {
+        let mut lines = Vec::new();
+        let mut unmatched = Vec::new();
+        let mut hidden = Vec::new();
+        let mut rendered: Vec<usize> = Vec::new();
+
+        for stat in stats {
+            if self.hidden.contains(&stat.id) {
+                hidden.push(stat.id.clone());
+                continue;
+            }
+            let Some(&index) = self.by_stat.get(&stat.id) else {
+                unmatched.push(stat.id.clone());
+                continue;
+            };
+            if rendered.contains(&index) {
+                continue; // another stat of the same block already produced the line
+            }
+            rendered.push(index);
+
+            let description = &self.descriptions[index];
+            let values: Vec<(f64, f64)> = description.stats.iter()
+                .map(|slot| {
+                    stats.iter()
+                        .find(|s| &s.id == slot)
+                        .map(|s| (s.min, s.max))
+                        .unwrap_or((0.0, 0.0))
+                })
+                .collect();
+
+            if let Some(line) = description.render(&values, language) {
+                lines.push(line);
+            }
+        }
+
+        Translation { lines, unmatched, hidden }
+    }
+}
+
+impl Description {
+    fn render(&self, values: &[(f64, f64)], language: &str) -> Option<String> {
+        let variants = self.variants.get(language)
+            .or_else(|| self.variants.get("English"))?;
+
+        let variant = variants.iter()
+            .filter(|variant| variant.tags.is_empty() && variant.matches(values))
+            .max_by_key(|variant| variant.specificity())?;
+
+        let transformed: Vec<(f64, f64)> = values.iter().enumerate()
+            .map(|(i, &(min, max))| {
+                let min = variant.apply_handlers(i, min);
+                let max = variant.apply_handlers(i, max);
+                if min <= max { (min, max) } else { (max, min) }
+            })
+            .collect();
+
+        let line = render_placeholders(&variant.text, &transformed);
+        if line.is_empty() { None } else { Some(line) }
+    }
+}
+
+impl Variant {
+    fn matches(&self, values: &[(f64, f64)]) -> bool {
+        self.conditions.iter().zip(values).all(|(condition, &(min, _))| {
+            let value = min.round() as i64;
+            if let Some(negated) = condition.negated_value {
+                return value != negated;
+            }
+            condition.min.map_or(true, |bound| value >= bound)
+                && condition.max.map_or(true, |bound| value <= bound)
+        })
+    }
+
+    fn specificity(&self) -> i32 {
+        self.conditions.iter().map(|condition| {
+            if condition.negated_value.is_some() {
+                return 3;
+            }
+            match (condition.min, condition.max) {
+                (Some(_), Some(_)) => 3,
+                (None, None) => 1,
+                _ => 2,
+            }
+        }).sum()
+    }
+
+    fn apply_handlers(&self, value_index: usize, value: f64) -> f64 {
+        let mut value = value;
+        for handler in &self.handlers {
+            let applies_to = handler.index.unwrap_or(1) - 1;
+            if applies_to == value_index {
+                value = handler.kind.apply(value);
+            }
+        }
+        value
+    }
+}
+
+fn parse_description<'a, I>(lines: &mut std::iter::Peekable<I>, stat_line_count: usize) -> Result<Vec<Description>, String>
+where
+    I: Iterator<Item = (usize, &'a str)>,
+{
+    // `description` puts the count and ids on one line; `handed_description`
+    // puts the count on its own line with each hand's id list on the lines
+    // after it, so ids are gathered across lines until the count is reached
+    let (_, first_line) = lines.next().ok_or("missing stats line after 'description'")?;
+    let mut leftover: Vec<String> = first_line.split_whitespace().map(str::to_string).collect();
+    let count: usize = leftover.remove(0).parse()
+        .map_err(|_| format!("expected stat count, got '{}'", first_line.trim()))?;
+
+    let mut stat_lists: Vec<Vec<String>> = Vec::with_capacity(stat_line_count);
+    let mut current = leftover;
+    for _ in 0..stat_line_count {
+        while current.len() < count {
+            let (_, line) = lines.next().ok_or("unexpected end of file in stat id list")?;
+            current.extend(line.split_whitespace().map(str::to_string));
+        }
+        if current.len() != count {
+            return Err(format!("expected {} stat ids, got {}", count, current.len()));
+        }
+        stat_lists.push(std::mem::take(&mut current));
+    }
+
+    let mut variants: HashMap<String, Vec<Variant>> = HashMap::new();
+    let mut language = "English".to_string();
+
+    loop {
+        let Some(&(_, next)) = lines.peek() else { break };
+        let trimmed = next.trim();
+        // blank lines can appear inside a block (data quirk); a blank line
+        // only ends the block when whatever follows is not part of it
+        if trimmed.is_empty() {
+            lines.next();
+            continue;
+        }
+        if let Some(name) = trimmed.strip_prefix("lang ") {
+            lines.next();
+            language = name.trim().trim_matches('"').to_string();
+            continue;
+        }
+        let Ok(variant_count) = trimmed.parse::<usize>() else { break };
+        lines.next();
+
+        let mut lang_variants = Vec::with_capacity(variant_count);
+        for _ in 0..variant_count {
+            let (number, line) = lines.next()
+                .ok_or("unexpected end of file inside description block")?;
+            // the game data contains the odd malformed line; drop the variant
+            // rather than refusing to load the whole file
+            match parse_variant(line.trim(), count) {
+                Ok(variant) => lang_variants.push(variant),
+                Err(message) => log::warn!("skipping stat description variant on line {}: {}", number + 1, message),
+            }
+        }
+        variants.entry(language.clone()).or_default().extend(lang_variants);
+    }
+
+    if !variants.contains_key("English") {
+        return Err("description block without an English section".to_string());
+    }
+    Ok(stat_lists.into_iter()
+        .map(|stats| Description { stats, variants: variants.clone() })
+        .collect())
+}
+
+fn parse_variant(line: &str, condition_count: usize) -> Result<Variant, String> {
+    let mut rest = line;
+    let mut conditions = Vec::with_capacity(condition_count);
+    for _ in 0..condition_count {
+        let rest_trimmed = rest.trim_start();
+        let token_end = rest_trimmed.find(char::is_whitespace)
+            .ok_or_else(|| format!("missing display string on '{}'", line))?;
+        let token = &rest_trimmed[..token_end];
+        conditions.push(parse_condition(token)?);
+        rest = &rest_trimmed[token_end..];
+    }
+
+    let mut rest = rest.trim_start();
+    let mut tags = Vec::new();
+    while !rest.is_empty() && !rest.starts_with('"') {
+        let token_end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+        tags.push(rest[..token_end].to_string());
+        rest = rest[token_end..].trim_start();
+    }
+    if !rest.starts_with('"') {
+        return Err(format!("expected quoted display string, got '{}'", line));
+    }
+    let closing = rest[1..].find('"')
+        .ok_or_else(|| format!("unterminated display string on '{}'", line))?;
+    let text = rest[1..closing + 1].replace("\\n", "\n");
+    let mut handlers: Vec<Handler> = Vec::new();
+
+    for token in rest[closing + 2..].split_whitespace() {
+        if let Ok(index) = token.parse::<usize>() {
+            if let Some(handler) = handlers.last_mut() {
+                handler.index = Some(index);
+            }
+            continue;
+        }
+        if let Some(Handler { kind: HandlerKind::ReminderString, .. }) = handlers.last() {
+            // reminder text key like `reminderstring ReminderTextFreeze`
+            if token.starts_with("ReminderText") {
+                continue;
+            }
+        }
+        handlers.push(Handler { kind: HandlerKind::from_name(token), index: None });
+    }
+
+    Ok(Variant { conditions, text, handlers, tags })
+}
+
+fn parse_condition(token: &str) -> Result<Condition, String> {
+    if token == "#" {
+        return Ok(Condition::default());
+    }
+    if let Some(value) = token.strip_prefix('!') {
+        let value = value.parse()
+            .map_err(|_| format!("bad negated condition '{}'", token))?;
+        return Ok(Condition { negated_value: Some(value), ..Condition::default() });
+    }
+    if token.contains('|') {
+        // the data contains occasional typos like "1|1|#"; read the first
+        // and last segment as the bounds
+        let mut segments = token.split('|');
+        let min = segments.next().unwrap_or("#");
+        let max = segments.next_back().unwrap_or("#");
+        let parse_bound = |bound: &str| -> Result<Option<i64>, String> {
+            if bound == "#" {
+                return Ok(None);
+            }
+            bound.parse().map(Some).map_err(|_| format!("bad condition '{}'", token))
+        };
+        return Ok(Condition { min: parse_bound(min)?, max: parse_bound(max)?, negated_value: None });
+    }
+    let exact = token.parse()
+        .map_err(|_| format!("bad condition '{}'", token))?;
+    Ok(Condition { min: Some(exact), max: Some(exact), negated_value: None })
+}
+
+/// Substitute `{i}` / `{i:+d}` / `{}` placeholders. A value whose min and max
+/// differ renders as a range: `(10-20)`, signed form `+(10-20)`.
+fn render_placeholders(text: &str, values: &[(f64, f64)]) -> String {
+    let mut output = String::with_capacity(text.len());
+    let mut chars = text.char_indices().peekable();
+    let mut sequential = 0usize;
+
+    while let Some((start, c)) = chars.next() {
+        if c != '{' {
+            output.push(c);
+            continue;
+        }
+        let Some(end) = text[start..].find('}') else {
+            output.push(c);
+            continue;
+        };
+        let inner = &text[start + 1..start + end];
+        for _ in 0..inner.chars().count() + 1 {
+            chars.next();
+        }
+
+        let (index_part, format_part) = match inner.split_once(':') {
+            Some((index, format)) => (index, Some(format)),
+            None => (inner, None),
+        };
+        let index = if index_part.is_empty() {
+            let index = sequential;
+            sequential += 1;
+            index
+        } else {
+            index_part.parse().unwrap_or(0)
+        };
+
+        let (min, max) = values.get(index).copied().unwrap_or((0.0, 0.0));
+        let signed = format_part == Some("+d");
+        output.push_str(&format_value(min, max, signed));
+    }
+    output
+}
+
+fn format_value(min: f64, max: f64, signed: bool) -> String {
+    if (min - max).abs() < 1e-9 {
+        let mut formatted = format_number(min);
+        if signed && min >= 0.0 {
+            formatted.insert(0, '+');
+        }
+        formatted
+    } else {
+        let range = format!("({}-{})", format_number(min), format_number(max));
+        if signed && min >= 0.0 {
+            format!("+{}", range)
+        } else {
+            range
+        }
+    }
+}
+
+fn format_number(value: f64) -> String {
+    if (value - value.round()).abs() < 1e-9 {
+        format!("{}", value.round() as i64)
+    } else {
+        format!("{:.2}", value)
+            .trim_end_matches('0')
+            .trim_end_matches('.')
+            .to_string()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum HandlerKind {
+    Negate,
+    ThirtyPercentOfValue,
+    SixtyPercentOfValue,
+    DecisecondsToSeconds,
+    DivideByThree,
+    DivideByFive,
+    DivideBySix,
+    DivideByTen0dp,
+    DivideByTwelve,
+    DivideByFifteen0dp,
+    DivideByTwo0dp,
+    DivideByTwentyThenDouble0dp,
+    DivideByOneHundred,
+    DivideByOneHundredAndNegate,
+    DivideByOneHundred2dp,
+    MillisecondsToSeconds,
+    MillisecondsToSeconds0dp,
+    MillisecondsToSeconds1dp,
+    MillisecondsToSeconds2dp,
+    MultiplicativeDamageModifier,
+    MultiplicativePermyriadDamageModifier,
+    MultiplyByFour,
+    TimesTwenty,
+    OldLeechPercent,
+    OldLeechPermyriad,
+    PerMinuteToPerSecond0dp,
+    PerMinuteToPerSecond1dp,
+    PerMinuteToPerSecond2dp,
+    ReminderString,
+    /// data-dependent or unknown handlers pass the value through unchanged
+    Passthrough,
+}
+
+impl HandlerKind {
+    fn from_name(name: &str) -> HandlerKind {
+        use HandlerKind::*;
+        match name {
+            "negate" => Negate,
+            "30%_of_value" => ThirtyPercentOfValue,
+            "60%_of_value" => SixtyPercentOfValue,
+            "deciseconds_to_seconds" => DecisecondsToSeconds,
+            "divide_by_three" => DivideByThree,
+            "divide_by_five" => DivideByFive,
+            "divide_by_six" => DivideBySix,
+            "divide_by_ten_0dp" => DivideByTen0dp,
+            "divide_by_twelve" => DivideByTwelve,
+            "divide_by_fifteen_0dp" => DivideByFifteen0dp,
+            "divide_by_two_0dp" => DivideByTwo0dp,
+            "divide_by_twenty_then_double_0dp" => DivideByTwentyThenDouble0dp,
+            "divide_by_one_hundred" => DivideByOneHundred,
+            "divide_by_one_hundred_and_negate" => DivideByOneHundredAndNegate,
+            "divide_by_one_hundred_2dp" | "divide_by_one_hundred_2dp_if_required" => DivideByOneHundred2dp,
+            "milliseconds_to_seconds" => MillisecondsToSeconds,
+            "milliseconds_to_seconds_0dp" => MillisecondsToSeconds0dp,
+            "milliseconds_to_seconds_1dp" => MillisecondsToSeconds1dp,
+            "milliseconds_to_seconds_2dp" | "milliseconds_to_seconds_2dp_if_required" => MillisecondsToSeconds2dp,
+            "multiplicative_damage_modifier" => MultiplicativeDamageModifier,
+            "multiplicative_permyriad_damage_modifier" => MultiplicativePermyriadDamageModifier,
+            "multiply_by_four" => MultiplyByFour,
+            "times_twenty" => TimesTwenty,
+            "old_leech_percent" => OldLeechPercent,
+            "old_leech_permyriad" => OldLeechPermyriad,
+            "per_minute_to_per_second" | "per_minute_to_per_second_1dp" => PerMinuteToPerSecond1dp,
+            "per_minute_to_per_second_0dp" => PerMinuteToPerSecond0dp,
+            "per_minute_to_per_second_2dp" | "per_minute_to_per_second_2dp_if_required" => PerMinuteToPerSecond2dp,
+            "reminderstring" => ReminderString,
+            _ => Passthrough,
+        }
+    }
+
+    fn apply(&self, v: f64) -> f64 {
+        use HandlerKind::*;
+        match self {
+            Negate => -v,
+            ThirtyPercentOfValue => v * 0.3,
+            SixtyPercentOfValue => v * 0.6,
+            DecisecondsToSeconds => v / 10.0,
+            DivideByThree => v / 3.0,
+            DivideByFive => v / 5.0,
+            DivideBySix => v / 6.0,
+            DivideByTen0dp => (v / 10.0).floor(),
+            DivideByTwelve => v / 12.0,
+            DivideByFifteen0dp => (v / 15.0).floor(),
+            DivideByTwo0dp => (v / 2.0).floor(),
+            DivideByTwentyThenDouble0dp => (v / 20.0).floor() * 2.0,
+            DivideByOneHundred => v / 100.0,
+            DivideByOneHundredAndNegate => -v / 100.0,
+            DivideByOneHundred2dp => round_dp(v / 100.0, 2),
+            MillisecondsToSeconds => v / 1000.0,
+            MillisecondsToSeconds0dp => (v / 1000.0).round(),
+            MillisecondsToSeconds1dp => round_dp(v / 1000.0, 1),
+            MillisecondsToSeconds2dp => round_dp(v / 1000.0, 2),
+            MultiplicativeDamageModifier => v + 100.0,
+            MultiplicativePermyriadDamageModifier => v / 100.0 + 100.0,
+            MultiplyByFour => v * 4.0,
+            TimesTwenty => v * 20.0,
+            OldLeechPercent => v / 5.0,
+            OldLeechPermyriad => v / 500.0,
+            PerMinuteToPerSecond0dp => (v / 60.0).round(),
+            PerMinuteToPerSecond1dp => round_dp(v / 60.0, 1),
+            PerMinuteToPerSecond2dp => round_dp(v / 60.0, 2),
+            ReminderString | Passthrough => v,
+        }
+    }
+}
+
+fn round_dp(value: f64, decimals: u32) -> f64 {
+    let factor = 10f64.powi(decimals as i32);
+    (value * factor).round() / factor
+}

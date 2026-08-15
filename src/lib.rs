@@ -7,6 +7,7 @@ pub mod dat;
 pub mod error;
 pub mod introspect;
 pub mod query;
+pub mod translate;
 pub mod traversal;
 
 pub use crate::dat::{DatReader, DatStoreImpl};

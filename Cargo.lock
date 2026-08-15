@@ -410,9 +410,9 @@ dependencies = [
 
 [[package]]
 name = "poe_bundle"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c90f29cd3cf4ff908b6cff90fbed4d5226b803c41b5da222c35f3430ee4c155a"
+checksum = "358675b812e8b9cb5e74701bc27f00346cd1cb315d0386dc6eb0c069a3397a09"
 dependencies = [
  "byteorder",
  "cmake",

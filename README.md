@@ -16,6 +16,7 @@ The binary is organized into subcommands:
 poe_query query "<query>"     # run a query against the game data
 poe_query tables              # list every table in the schema (no install needed)
 poe_query describe <Table>    # show a table's columns, types, references, enums
+poe_query translate <id=val>  # render stat ids and values as in-game text
 poe_query serve               # answer NDJSON requests over stdio
 ```
 
@@ -111,6 +112,28 @@ $ poe_query query '.Mods[0] | [.SpawnWeight_TagsKeys[].Id, .SpawnWeight_Values] 
 ```
 There's an alias for the map/reduce operation above named `zip_to_obj` that can be used instead.
 
+## Stat translation
+
+`translate` renders raw stat ids and values as the text shown in game, using
+`Metadata/StatDescriptions/stat_descriptions.txt` from the installation
+(`--file` selects a sibling file such as `skill_stat_descriptions`; `-l`
+selects the language). Values are `id=value` or `id=min..max`.
+
+```sh
+$ poe_query translate base_maximum_life=10..20 attack_speed_+%=-8
+{
+  "lines": [
+    "+(10-20) to maximum Life",
+    "8% reduced Attack Speed"
+  ],
+  "unmatched": [],
+  "hidden": []
+}
+```
+
+`unmatched` lists ids no description block knows; `hidden` lists ids the game
+intentionally never displays (`no_description`).
+
 ## Serve mode
 
 `poe_query serve` indexes the installation once and then answers requests in a
@@ -123,15 +146,16 @@ $ echo '{"id": 1, "method": "query", "params": {"query": ".Mods[0].Id"}}' | poe_
 {"id":1,"ok":true,"result":"Strength1","timings":{"parse_ms":0,"eval_ms":28}}
 ```
 
-Methods: `query` (`params.query`), `tables`, `describe` (`params.table`), and
-`ping` (version, install path, table count). Failures come back in-band as
+Methods: `query` (`params.query`), `tables`, `describe` (`params.table`),
+`translate` (`params.stats` as `[{"id", "value"}]` or `[{"id", "min", "max"}]`,
+optional `params.file`; parsed description files are cached for the session),
+and `ping` (version, install path, table count). Failures come back in-band as
 `{"ok": false, "error": {"kind", "message", "suggestion"}}` where `kind` is a
 stable discriminator (`parse`, `unknown_table`, `unknown_column`, `type_error`,
 `missing_data_file`, `schema_mismatch`, `unsupported`, `internal`,
 `bad_request`).
 
 # wishlist (TODO)
- - translations
  - reduce amount of copying of data
  - optional multithreading (HDD vs SSD)
  - darwin release targets

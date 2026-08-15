@@ -22,6 +22,7 @@ mod error;
 mod introspect;
 mod query;
 mod serve;
+mod translate;
 mod traversal;
 
 const EXIT_SETUP: i32 = 1;
@@ -66,6 +67,15 @@ enum Command {
         #[arg(long)]
         full: bool,
     },
+    /// Translate stat ids with values into in-game text
+    Translate {
+        /// Stats as id=value or id=min..max, e.g. base_maximum_life=25
+        #[arg(required = true)]
+        stats: Vec<String>,
+        /// Stat description file base name (default: stat_descriptions)
+        #[arg(long)]
+        file: Option<String>,
+    },
     /// Answer NDJSON requests over stdio (one request per line)
     Serve,
 }
@@ -82,8 +92,52 @@ fn main() {
         Command::Query { query } => run_query(&query, args.path, &args.language, &schema_path),
         Command::Tables => run_tables(&schema_path),
         Command::Describe { table, full } => run_describe(&schema_path, &table, full),
+        Command::Translate { stats, file } => run_translate(&stats, file.as_deref(), args.path, &args.language, &schema_path),
         Command::Serve => run_serve(args.path, &args.language, &schema_path),
     }
+}
+
+fn run_translate(stats: &[String], file: Option<&str>, path_arg: Option<PathBuf>, language: &str, schema_path: &Path) {
+    let stats: Vec<translate::StatValue> = stats.iter().map(|arg| {
+        parse_stat_arg(arg).unwrap_or_else(|message| {
+            error!("{}", message);
+            process::exit(EXIT_PARSE);
+        })
+    }).collect();
+
+    let install_path = find_poe_install(path_arg);
+    info!("Using: {:?}", install_path);
+    let bundles = BundleReader::from_install(&install_path);
+    let container = DatReader::from_install(language, &bundles, schema_path);
+
+    let descriptions = match container.stat_descriptions(file) {
+        Ok(descriptions) => descriptions,
+        Err(error) => {
+            error!("{}", error);
+            process::exit(EXIT_EVAL);
+        }
+    };
+
+    let translation = descriptions.translate(&stats, language);
+    if !translation.unmatched.is_empty() {
+        warn!("no description found for: {}", translation.unmatched.join(", "));
+    }
+    print_json(&translation);
+}
+
+fn parse_stat_arg(arg: &str) -> Result<translate::StatValue, String> {
+    let (id, value) = arg.split_once('=')
+        .ok_or_else(|| format!("expected id=value or id=min..max, got '{}'", arg))?;
+    let parse = |text: &str| text.parse::<f64>()
+        .map_err(|_| format!("'{}' is not a number in '{}'", text, arg));
+    let (min, max) = match value.split_once("..") {
+        Some((min, max)) => (parse(min)?, parse(max)?),
+        None => {
+            let value = parse(value)?;
+            (value, value)
+        }
+    };
+    Ok(translate::StatValue { id: id.to_string(), min, max })
 }
 
 fn run_serve(path_arg: Option<PathBuf>, language: &str, schema_path: &Path) {

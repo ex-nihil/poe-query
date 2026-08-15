@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
 use std::path::Path;
 use std::time::Instant;
@@ -9,6 +10,7 @@ use crate::dat::DatReader;
 use crate::error::QueryError;
 use crate::introspect;
 use crate::query;
+use crate::translate::{StatDescriptions, StatValue};
 use crate::traversal::{QueryProcessor, SharedCache, StaticContext};
 
 /// NDJSON protocol over stdio: one request per line on stdin, one response
@@ -32,6 +34,16 @@ struct Request {
 struct Params {
     query: Option<String>,
     table: Option<String>,
+    stats: Option<Vec<StatParam>>,
+    file: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct StatParam {
+    id: String,
+    value: Option<f64>,
+    min: Option<f64>,
+    max: Option<f64>,
 }
 
 #[derive(Serialize)]
@@ -96,6 +108,7 @@ impl Response {
 pub fn serve(container: &DatReader, install_path: &Path) {
     let context = StaticContext::new(container);
     let mut cache = SharedCache::default();
+    let mut translations: HashMap<String, StatDescriptions> = HashMap::new();
 
     let stdin = io::stdin();
     let stdout = io::stdout();
@@ -108,7 +121,7 @@ pub fn serve(container: &DatReader, install_path: &Path) {
             continue;
         }
 
-        let response = handle_line(&line, &context, &mut cache, container, install_path);
+        let response = handle_line(&line, &context, &mut cache, &mut translations, container, install_path);
         match serde_json::to_string(&response) {
             Ok(serialized) => {
                 if writeln!(output, "{}", serialized).and_then(|_| output.flush()).is_err() {
@@ -124,6 +137,7 @@ fn handle_line(
     line: &str,
     context: &StaticContext,
     cache: &mut SharedCache,
+    translations: &mut HashMap<String, StatDescriptions>,
     container: &DatReader,
     install_path: &Path,
 ) -> Response {
@@ -159,6 +173,34 @@ fn handle_line(
                     Err(error) => Response::bad_request(id, error.to_string()),
                 },
                 Err(error) => Response::query_error(id, error),
+            }
+        }
+        "translate" => {
+            let Some(stat_params) = request.params.stats else {
+                return Response::bad_request(id, "method 'translate' requires params.stats");
+            };
+            let mut stats = Vec::with_capacity(stat_params.len());
+            for param in stat_params {
+                let (min, max) = match (param.value, param.min, param.max) {
+                    (Some(value), _, _) => (value, value),
+                    (None, Some(min), Some(max)) => (min, max),
+                    _ => return Response::bad_request(id,
+                        format!("stat '{}' needs either 'value' or 'min' and 'max'", param.id)),
+                };
+                stats.push(StatValue { id: param.id, min, max });
+            }
+
+            let file = request.params.file.unwrap_or_else(|| "stat_descriptions".to_string());
+            if !translations.contains_key(&file) {
+                match container.stat_descriptions(Some(&file)) {
+                    Ok(descriptions) => { translations.insert(file.clone(), descriptions); }
+                    Err(error) => return Response::query_error(id, error),
+                }
+            }
+            let translation = translations[&file].translate(&stats, container.language());
+            match serde_json::to_value(translation) {
+                Ok(result) => Response::ok(id, result, None),
+                Err(error) => Response::bad_request(id, error.to_string()),
             }
         }
         "ping" => {
