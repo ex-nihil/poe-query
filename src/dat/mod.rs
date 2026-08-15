@@ -13,6 +13,16 @@ pub mod specification;
 pub mod file;
 
 
+/// Load the table and enum specifications from a dat-schema directory.
+/// File specs are resolved in two passes so @ref columns can look up the
+/// field types of the tables they point at.
+pub fn load_schema(spec_path: &Path) -> (HashMap<String, FileSpec>, HashMap<String, EnumSpec>) {
+    let enums = FileSpec::read_enum_specs(spec_path);
+    let specs = FileSpec::read_file_specs(spec_path, &enums, &HashMap::new());
+    let specs = FileSpec::read_file_specs(spec_path, &enums, &specs);
+    (specs, enums)
+}
+
 pub struct DatReader<'a> {
     language: &'a str,
     bundle_reader: &'a BundleReader,
@@ -23,9 +33,7 @@ pub struct DatReader<'a> {
 impl<'a> DatReader<'a> {
 
     pub fn from_install(language: &'a str, bundles: &'a BundleReader, spec_path: &Path) -> DatReader<'a> {
-        let enums = FileSpec::read_enum_specs(spec_path);
-        let specs = FileSpec::read_file_specs(spec_path, &enums, &HashMap::new());
-        let specs = FileSpec::read_file_specs(spec_path, &enums, &specs);
+        let (specs, enums) = load_schema(spec_path);
 
         DatReader {
             language,

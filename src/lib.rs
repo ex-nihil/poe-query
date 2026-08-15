@@ -9,5 +9,6 @@ use crate::traversal::value::Value;
 
 pub mod dat;
 pub mod error;
+pub mod introspect;
 pub mod query;
 pub mod traversal;

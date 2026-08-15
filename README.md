@@ -10,21 +10,36 @@ The spec should be placed in a `dat-schema` folder in the same directory as the 
 
 ## Usage / Examples
 
-Iterate over all `Id` fields in `Mods.dat`
+The binary is organized into subcommands:
+
+```sh
+poe_query query "<query>"     # run a query against the game data
+poe_query tables              # list every table in the schema (no install needed)
+poe_query describe <Table>    # show a table's columns, types, references, enums
+```
+
+Shared flags: `-p <INSTALL_DIR>`, `-l <LANGUAGE>`, `-s <SCHEMA_DIR>` (defaults to
+`dat-schema` next to the binary), `-v` (repeat for more logging).
+
+Errors are reported on stderr with distinct exit codes: `1` setup, `2` parse
+error, `3` evaluation error. Unknown tables and columns are hard errors with a
+"did you mean" suggestion instead of silently returning `null`.
+
+Query the first `Id` field in `Mods.dat`
 ```sh 
-$ poe_query .Mods[1].Id
+$ poe_query query .Mods[1].Id
 "Strength1"
 ```
 
 Traverse through a foreign key. (`Name` taken from `ModType[364]`)
 ```sh
-$ poe_query .Mods[0].ModTypeKey.Name
+$ poe_query query .Mods[0].ModTypeKey.Name
 "Strength"
 ```
 
 Get `Id` from the first rows in `Mods.dat` and `Stats.dat`
 ```sh
-$ poe_query '.Mods[0].Id, .Stats[0].Id'
+$ poe_query query '.Mods[0].Id, .Stats[0].Id'
 [
   "Strength1",
   "level"
@@ -33,7 +48,7 @@ $ poe_query '.Mods[0].Id, .Stats[0].Id'
 
 Construct a JSON object from the wanted fields in the first row of `Mods.dat`
 ```sh
-$ poe_query '.Mods[0] | { foo: .Id, bar: .GenerationType }'
+$ poe_query query '.Mods[0] | { foo: .Id, bar: .GenerationType }'
 {
   "foo": "Strength1",
   "bar": "SUFFIX"
@@ -42,7 +57,7 @@ $ poe_query '.Mods[0] | { foo: .Id, bar: .GenerationType }'
 
 Transforming data with `transpose`, `map`, `reduce`.
 ```sh
-$ poe_query '.Mods[0] | [.SpawnWeight_TagsKeys[].Id, .SpawnWeight_Values]'
+$ poe_query query '.Mods[0] | [.SpawnWeight_TagsKeys[].Id, .SpawnWeight_Values]'
 [
   [
     "ring",
@@ -76,7 +91,7 @@ $ poe_query '.Mods[0] | [.SpawnWeight_TagsKeys[].Id, .SpawnWeight_Values]'
   ]
 ]
 
-$ poe_query '.Mods[0] | [.SpawnWeight_TagsKeys[].Id, .SpawnWeight_Values] | transpose | map({([0]): [1]}) | reduce .[] as $item ({}; . + $item)
+$ poe_query query '.Mods[0] | [.SpawnWeight_TagsKeys[].Id, .SpawnWeight_Values] | transpose | map({([0]): [1]}) | reduce .[] as $item ({}; . + $item)
  {
   "ring": 1000,
   "default": 1000,

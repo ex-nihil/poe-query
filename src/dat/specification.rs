@@ -27,6 +27,14 @@ impl EnumSpec {
         self.enum_values.get(index - self.first_index)
             .unwrap_or(&"".to_string()).to_string()
     }
+
+    pub fn values(&self) -> &[String] {
+        &self.enum_values
+    }
+
+    pub fn first_index(&self) -> usize {
+        self.first_index
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Deserialize, Clone)]

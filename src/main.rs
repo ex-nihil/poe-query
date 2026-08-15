@@ -18,6 +18,7 @@ use crate::traversal::value::Value;
 
 mod dat;
 mod error;
+mod introspect;
 mod query;
 mod traversal;
 
@@ -31,16 +32,32 @@ const EXIT_EVAL: i32 = 3;
 #[command(version = env ! ("CARGO_PKG_VERSION"))]
 #[command(about = "Query and transform data from Path of Exile", long_about = None)]
 struct Args {
-    #[arg(short, long, value_name = "INSTALL_DIR")]
+    /// Path to the Path of Exile installation
+    #[arg(short, long, value_name = "INSTALL_DIR", global = true)]
     path: Option<PathBuf>,
 
-    #[arg(short, long, action = clap::ArgAction::Count)]
+    #[arg(short, long, action = clap::ArgAction::Count, global = true)]
     verbose: u8,
 
-    #[arg(short, long, default_value_t = String::from("English"))]
+    #[arg(short, long, default_value = "English", global = true)]
     language: String,
 
-    query: String,
+    /// Directory with the dat-schema specifications (default: dat-schema next to the binary)
+    #[arg(short, long, value_name = "SCHEMA_DIR", global = true)]
+    schema: Option<PathBuf>,
+
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(clap::Subcommand)]
+enum Command {
+    /// Run a query against the game data
+    Query { query: String },
+    /// List every table available in the schema
+    Tables,
+    /// Show a table's columns with types, references, and enum values
+    Describe { table: String },
 }
 
 fn main() {
@@ -48,14 +65,23 @@ fn main() {
     init_logger(args.verbose);
     debug!("Version {:?}", env!("CARGO_PKG_VERSION"));
 
-    let install_path = find_poe_install(args.path);
-    let schema_path = find_schema_path();
-    info!("Using: {:?}", install_path);
+    let schema_path = find_schema_path(args.schema);
     info!("Schemas: {:?}", schema_path);
+
+    match args.command {
+        Command::Query { query } => run_query(&query, args.path, &args.language, &schema_path),
+        Command::Tables => run_tables(&schema_path),
+        Command::Describe { table } => run_describe(&schema_path, &table),
+    }
+}
+
+fn run_query(query: &str, path_arg: Option<PathBuf>, language: &str, schema_path: &Path) {
+    let install_path = find_poe_install(path_arg);
+    info!("Using: {:?}", install_path);
 
     // Parse
     let now = Instant::now();
-    let terms = match query::parse_query(&args.query) {
+    let terms = match query::parse_query(query) {
         Ok(t) => t,
         Err(error) => {
             error!("{}", error);
@@ -66,7 +92,7 @@ fn main() {
 
     // Index bundles
     let bundles = BundleReader::from_install(&install_path);
-    let container = DatReader::from_install(&args.language, &bundles, &schema_path);
+    let container = DatReader::from_install(language, &bundles, schema_path);
     let (read_index_ms, now) = (now.elapsed().as_millis(), Instant::now());
 
     // Transform
@@ -95,14 +121,34 @@ fn main() {
     info!("serialize spent: {}ms", serialize_ts);
 }
 
-fn serialize_and_print(value: &Value) {
-    match serde_json::to_string_pretty(&value) {
+fn run_tables(schema_path: &Path) {
+    let (specs, _) = dat::load_schema(schema_path);
+    print_json(&introspect::table_names(&specs));
+}
+
+fn run_describe(schema_path: &Path, table: &str) {
+    let (specs, _) = dat::load_schema(schema_path);
+    match introspect::describe(&specs, table) {
+        Ok(description) => print_json(&description),
+        Err(error) => {
+            error!("{}", error);
+            process::exit(EXIT_EVAL);
+        }
+    }
+}
+
+fn print_json<T: serde::Serialize>(value: &T) {
+    match serde_json::to_string_pretty(value) {
         Ok(serialized) => println!("{}", serialized),
         Err(error) => {
             error!("{}", error);
             process::exit(EXIT_EVAL);
         }
     }
+}
+
+fn serialize_and_print(value: &Value) {
+    print_json(value)
 }
 
 fn init_logger(verbosity: u8) {
@@ -161,9 +207,16 @@ fn contains_ggpk_or_index(path: &Path) -> bool {
     has_ggpk || has_index
 }
 
-fn find_schema_path() -> Box<Path> {
-    let mut schema_dir = env::current_exe().unwrap();
-    schema_dir.pop(); // remove file
-    schema_dir.push("dat-schema");
+fn find_schema_path(schema_arg: Option<PathBuf>) -> Box<Path> {
+    let schema_dir = schema_arg.unwrap_or_else(|| {
+        let mut schema_dir = env::current_exe().unwrap();
+        schema_dir.pop(); // remove file
+        schema_dir.push("dat-schema");
+        schema_dir
+    });
+    if !schema_dir.is_dir() {
+        error!("Schema directory not found at {:?}. Provide one with the -s flag.", schema_dir);
+        process::exit(EXIT_SETUP);
+    }
     schema_dir.into_boxed_path()
 }
