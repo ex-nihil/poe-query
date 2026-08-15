@@ -20,6 +20,9 @@ pub struct DatFile {
     pub data_section: usize,
     pub rows_count: u32,
     pub row_size: usize,
+    /// Non-fatal schema drift notes collected at load time, so a driving
+    /// process can surface them alongside query results.
+    pub warnings: Vec<String>,
 }
 
 impl std::fmt::Debug for DatFile {
@@ -56,27 +59,41 @@ impl DatFile {
             rows_begin,
             data_section,
             rows_count,
-            row_size
+            row_size,
+            warnings: Vec::new(),
         };
 
         info!("Read {:?}", file);
         Ok(file)
     }
 
-    pub fn valid(&self, spec: &FileSpec) {
+    /// Compare the file's actual row size against the specification. A spec
+    /// that is *larger* than the row decodes garbage across row boundaries
+    /// and is a hard error; a spec that is *smaller* just leaves trailing
+    /// bytes unmapped and is reported as a warning.
+    pub fn validate(&self, spec: &FileSpec) -> Result<Vec<String>, QueryError> {
         debug!("Validating using specification '{}'", spec);
-        let last_field = spec.file_fields.last();
-        if let Some(field) = last_field {
-            let spec_row_size = field.field_offset + FileSpec::field_size(field);
-            if self.row_size > spec_row_size {
-                warn!("Spec for '{}' missing {} bytes", spec.file_name, self.row_size - spec_row_size);
-            }
-            if spec_row_size > self.row_size {
-                warn!("Spec for '{}' overflows by {} bytes", spec.file_name, spec_row_size - self.row_size);
-            }
-        } else {
-            warn!("Spec for {} does not contain fields", spec.file_name);
+        let Some(field) = spec.file_fields.last() else {
+            return Ok(vec![format!("spec for '{}' does not contain fields", spec.file_name)]);
+        };
+        if self.rows_count == 0 {
+            return Ok(Vec::new());
         }
+        let spec_row_size = field.field_offset + FileSpec::field_size(field);
+        if spec_row_size > self.row_size {
+            return Err(QueryError::SchemaMismatch {
+                table: spec.file_name.clone(),
+                detail: format!(
+                    "specification overflows the {} byte rows by {} bytes; the dat-schema does not match this game version",
+                    self.row_size, spec_row_size - self.row_size),
+            });
+        }
+        if self.row_size > spec_row_size {
+            return Ok(vec![format!(
+                "spec for '{}' is missing {} bytes, trailing columns are unmapped",
+                spec.file_name, self.row_size - spec_row_size)]);
+        }
+        Ok(Vec::new())
     }
 
     pub fn check_offset(&self, offset: usize) -> Result<(), QueryError> {

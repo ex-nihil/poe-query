@@ -44,6 +44,8 @@ struct Response {
     error: Option<ErrorBody>,
     #[serde(skip_serializing_if = "Option::is_none")]
     timings: Option<Timings>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    warnings: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -62,11 +64,11 @@ struct Timings {
 
 impl Response {
     fn ok(id: serde_json::Value, result: serde_json::Value, timings: Option<Timings>) -> Self {
-        Response { id, ok: true, result: Some(result), error: None, timings }
+        Response { id, ok: true, result: Some(result), error: None, timings, warnings: Vec::new() }
     }
 
     fn error(id: serde_json::Value, error: ErrorBody) -> Self {
-        Response { id, ok: false, result: None, error: Some(error), timings: None }
+        Response { id, ok: false, result: None, error: Some(error), timings: None, warnings: Vec::new() }
     }
 
     fn query_error(id: serde_json::Value, error: QueryError) -> Self {
@@ -185,14 +187,21 @@ fn handle_query(
     let parse_ms = now.elapsed().as_millis();
 
     let now = Instant::now();
-    let result = match context.process_with_cache(cache, &terms) {
+    let result = context.process_with_cache(cache, &terms);
+    let eval_ms = now.elapsed().as_millis();
+    let warnings = cache.take_warnings();
+
+    let result = match result {
         Ok(value) => value,
         Err(error) => return Response::query_error(id, error),
     };
-    let eval_ms = now.elapsed().as_millis();
 
     match serde_json::to_value(&result) {
-        Ok(result) => Response::ok(id, result, Some(Timings { parse_ms, eval_ms })),
+        Ok(result) => {
+            let mut response = Response::ok(id, result, Some(Timings { parse_ms, eval_ms }));
+            response.warnings = warnings;
+            response
+        }
         Err(error) => Response::query_error(id, QueryError::internal(error.to_string())),
     }
 }

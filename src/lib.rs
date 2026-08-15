@@ -3,12 +3,14 @@ extern crate pest_derive;
 extern crate core;
 
 
-use crate::dat::DatReader;
-use crate::query::Term;
-use crate::traversal::value::Value;
-
 pub mod dat;
 pub mod error;
 pub mod introspect;
 pub mod query;
 pub mod traversal;
+
+pub use crate::dat::{DatReader, DatStoreImpl};
+pub use crate::error::QueryError;
+pub use crate::query::{parse_query, Term};
+pub use crate::traversal::{QueryProcessor, SharedCache, StaticContext};
+pub use crate::traversal::value::Value;

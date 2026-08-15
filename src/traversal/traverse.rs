@@ -66,6 +66,7 @@ impl<'a> StaticContext<'a> {
             let store = self.store
                 .ok_or_else(|| QueryError::internal(format!("no data store loaded, cannot read table '{}'", file_name)))?;
             let file = store.file_by_filename(file_name)?;
+            cache.warnings.extend(file.warnings.iter().cloned());
             cache.files.insert(file_name.to_string(), file);
         }
         Ok(cache.files.get(file_name).unwrap())
@@ -111,6 +112,15 @@ impl<'a> StaticContext<'a> {
 pub struct SharedCache {
     variables: HashMap<String, Value>,
     files: HashMap<String, DatFile>,
+    warnings: Vec<String>,
+}
+
+impl SharedCache {
+    /// Drain schema drift warnings collected while loading data files, so a
+    /// long-lived process can report them alongside the query result.
+    pub fn take_warnings(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.warnings)
+    }
 }
 
 /** Local mutable data during traversal */

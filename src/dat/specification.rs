@@ -65,8 +65,26 @@ impl fmt::Display for FieldSpec {
 }
 
 impl FileSpec {
-    pub fn read_enum_specs(path: &Path) -> HashMap<String, EnumSpec> {
-        Self::read_specs_transform_definitions(path, |definition| {
+    /// Read and parse every .gql file in the directory once; the resulting
+    /// definitions are shared by the enum pass and both file spec passes.
+    pub fn parse_definitions(path: &Path) -> Vec<Definition> {
+        std::fs::read_dir(path).expect("spec path does not exist")
+            .filter_map(|directory| directory.ok().map(|entry| entry.path()))
+            .filter(|file_path| file_path.is_file() && file_path.extension().map_or(false, |ext| ext == "gql"))
+            .flat_map(|file_path| {
+                let text = std::fs::read_to_string(file_path).unwrap();
+
+                let parser = Parser::new(&text);
+                let ast = parser.parse();
+
+                assert_eq!(ast.errors().len(), 0);
+                ast.document().definitions()
+            })
+            .collect()
+    }
+
+    pub fn read_enum_specs(definitions: &[Definition]) -> HashMap<String, EnumSpec> {
+        Self::transform_definitions(definitions, |definition| {
             match definition {
                 Definition::EnumTypeDefinition(obj) => {
                     let enum_name = obj.name().unwrap().text();
@@ -99,29 +117,18 @@ impl FileSpec {
         })
     }
 
-    fn read_specs_transform_definitions<F, T>(path: &Path, transform: F) -> HashMap<String, T>
+    fn transform_definitions<F, T>(definitions: &[Definition], transform: F) -> HashMap<String, T>
         where
-            F: Fn(Definition) -> Option<(String, T)>,
+            F: Fn(&Definition) -> Option<(String, T)>,
     {
-        std::fs::read_dir(path).expect("spec path does not exist")
-            .filter_map(|directory| directory.ok().map(|entry| entry.path()))
-            .filter(|file_path| file_path.is_file() && file_path.extension().map_or(false, |ext| ext == "gql"))
-            .flat_map(|file_path| {
-                let text = std::fs::read_to_string(file_path).unwrap();
-
-                let parser = Parser::new(&text);
-                let ast = parser.parse();
-
-                assert_eq!(ast.errors().len(), 0);
-                ast.document().definitions()
-            })
+        definitions.iter()
             .filter_map(transform)
             .collect()
     }
 
 
-    pub fn read_file_specs(path: &Path, enum_specs: &HashMap<String, EnumSpec>, file_specs: &HashMap<String, FileSpec>) -> HashMap<String, FileSpec> {
-        Self::read_specs_transform_definitions(path, |definition| {
+    pub fn read_file_specs(definitions: &[Definition], enum_specs: &HashMap<String, EnumSpec>, file_specs: &HashMap<String, FileSpec>) -> HashMap<String, FileSpec> {
+        Self::transform_definitions(definitions, |definition| {
             match definition {
                 Definition::ObjectTypeDefinition(obj) => {
                     let filename = obj.name().unwrap().text().to_string();

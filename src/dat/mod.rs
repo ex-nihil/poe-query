@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use log::info;
+use log::{info, warn};
 use poe_bundle::{BundleReader, BundleReaderRead};
 
 use crate::dat::file::DatFile;
@@ -17,9 +17,10 @@ pub mod file;
 /// File specs are resolved in two passes so @ref columns can look up the
 /// field types of the tables they point at.
 pub fn load_schema(spec_path: &Path) -> (HashMap<String, FileSpec>, HashMap<String, EnumSpec>) {
-    let enums = FileSpec::read_enum_specs(spec_path);
-    let specs = FileSpec::read_file_specs(spec_path, &enums, &HashMap::new());
-    let specs = FileSpec::read_file_specs(spec_path, &enums, &specs);
+    let definitions = FileSpec::parse_definitions(spec_path);
+    let enums = FileSpec::read_enum_specs(&definitions);
+    let specs = FileSpec::read_file_specs(&definitions, &enums, &HashMap::new());
+    let specs = FileSpec::read_file_specs(&definitions, &enums, &specs);
     (specs, enums)
 }
 
@@ -72,9 +73,10 @@ impl<'a> DatStoreImpl<'a> for DatReader<'a> {
         let bytes = self.bundle_reader.bytes(&path)
             .map_err(|_| QueryError::MissingDataFile { table: filename.to_string() })?;
 
-        let dat_file = DatFile::from_bytes(path, bytes)?;
+        let mut dat_file = DatFile::from_bytes(path, bytes)?;
         if let Some(file_specification) = spec {
-            dat_file.valid(file_specification);
+            dat_file.warnings = dat_file.validate(file_specification)?;
+            dat_file.warnings.iter().for_each(|warning| warn!("{}", warning));
         }
         Ok(dat_file)
     }
