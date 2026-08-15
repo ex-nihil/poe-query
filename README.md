@@ -137,8 +137,11 @@ intentionally never displays (`no_description`).
 
 `untranslate` is the inverse: given display text it returns every stat
 combination that can produce it, with values recovered from the numbers
-(handlers are inverted, so "reduced" wording comes back negative). Numbers,
-`(10-20)` ranges, and `#` wildcards are accepted. Text matching is literal
+(handlers are inverted, so "reduced" wording comes back negative). Only what
+the text actually said is reported: a plain number sets `value`, a `(10-20)`
+range sets `min`/`max`, the in-game item copy roll format `29(27-32)` sets
+all three, and a `#` wildcard sets none. Multi-line input, as pasted from an
+item copy, is split into one result per trimmed line. Text matching is literal
 (no fuzzy matching), and recovered values must satisfy the variant's value
 conditions — "0% increased Attack Speed" matches nothing because the game
 only prints that wording for values of 1 and up. Ambiguous lines return all

@@ -211,9 +211,9 @@ fn handle_line(
                 Ok(descriptions) => descriptions,
                 Err(error) => return Response::query_error(id, error),
             };
-            let results: Vec<serde_json::Value> = texts.iter().map(|text| {
-                let matches = descriptions.reverse(text, container.language());
-                serde_json::json!({ "text": text, "matches": matches })
+            let results: Vec<serde_json::Value> = texts.iter().flat_map(|text| {
+                descriptions.reverse_text(text, container.language()).into_iter()
+                    .map(|(line, matches)| serde_json::json!({ "text": line, "matches": matches }))
             }).collect();
             Response::ok(id, serde_json::Value::Array(results), None)
         }

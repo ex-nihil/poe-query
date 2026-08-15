@@ -215,11 +215,13 @@ fn reverse(text: &str) -> Vec<poe_query_lib::translate::ReverseMatch> {
 
 #[test]
 fn reverse_recovers_value_and_id() {
+    // a plain number is a known roll but an unknown roll range
     let matches = reverse("+25 to maximum Life");
     assert_eq!(matches.len(), 1);
     assert_eq!(matches[0].stats[0].id, "base_maximum_life");
-    assert_eq!(matches[0].stats[0].min, Some(25.0));
-    assert_eq!(matches[0].stats[0].max, Some(25.0));
+    assert_eq!(matches[0].stats[0].value, Some(25.0));
+    assert_eq!(matches[0].stats[0].min, None);
+    assert_eq!(matches[0].stats[0].max, None);
     assert!(matches[0].exact);
 }
 
@@ -228,20 +230,23 @@ fn reverse_inverts_negate() {
     let matches = reverse("8% reduced Attack Speed");
     assert_eq!(matches.len(), 1);
     assert_eq!(matches[0].stats[0].id, "attack_speed_+%");
-    assert_eq!(matches[0].stats[0].min, Some(-8.0));
+    assert_eq!(matches[0].stats[0].value, Some(-8.0));
 
     let matches = reverse("12% increased Attack Speed");
-    assert_eq!(matches[0].stats[0].min, Some(12.0));
+    assert_eq!(matches[0].stats[0].value, Some(12.0));
 }
 
 #[test]
 fn reverse_accepts_ranges_and_wildcards() {
+    // an explicit range is a known roll range but an unknown roll
     let matches = reverse("+(10-20) to maximum Life");
+    assert_eq!(matches[0].stats[0].value, None);
     assert_eq!(matches[0].stats[0].min, Some(10.0));
     assert_eq!(matches[0].stats[0].max, Some(20.0));
 
     let matches = reverse("#% increased Attack Speed");
     assert_eq!(matches[0].stats[0].id, "attack_speed_+%");
+    assert_eq!(matches[0].stats[0].value, None);
     assert_eq!(matches[0].stats[0].min, None);
     assert_eq!(matches[0].stats[0].max, None);
 }
@@ -251,9 +256,9 @@ fn reverse_recovers_both_stats_of_a_block() {
     let matches = reverse("Deals 5 to 12 Fire Damage");
     assert_eq!(matches.len(), 1);
     assert_eq!(matches[0].stats[0].id, "spell_minimum_base_fire_damage");
-    assert_eq!(matches[0].stats[0].min, Some(5.0));
+    assert_eq!(matches[0].stats[0].value, Some(5.0));
     assert_eq!(matches[0].stats[1].id, "spell_maximum_base_fire_damage");
-    assert_eq!(matches[0].stats[1].min, Some(12.0));
+    assert_eq!(matches[0].stats[1].value, Some(12.0));
 }
 
 #[test]
@@ -261,12 +266,12 @@ fn reverse_inverts_handlers_and_flags_approximation() {
     // divide_by_one_hundred_2dp rounds, so the inversion is approximate
     let matches = reverse("0.25% chance to drop Breachstones");
     assert_eq!(matches[0].stats[0].id, "breach_splinter_conversion_permyriad");
-    assert_eq!(matches[0].stats[0].min, Some(25.0));
+    assert_eq!(matches[0].stats[0].value, Some(25.0));
     assert!(!matches[0].exact);
 
     let matches = reverse("4.5 second Cooldown");
     assert_eq!(matches[0].stats[0].id, "skill_cooldown_ms");
-    assert_eq!(matches[0].stats[0].min, Some(4500.0));
+    assert_eq!(matches[0].stats[0].value, Some(4500.0));
 }
 
 #[test]
@@ -274,6 +279,40 @@ fn reverse_without_a_match_is_empty() {
     assert!(reverse("This text appears on no item").is_empty());
     // partial prefix must not match
     assert!(reverse("+25 to maximum Life and then some").is_empty());
+}
+
+#[test]
+fn reverse_accepts_item_copy_roll_and_range() {
+    // in-game item copy shows the roll followed by the tier's roll range
+    let matches = reverse("12(10-15)% increased Attack Speed");
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].stats[0].value, Some(12.0));
+    assert_eq!(matches[0].stats[0].min, Some(10.0));
+    assert_eq!(matches[0].stats[0].max, Some(15.0));
+
+    // negate inverts roll and range alike, reordering the bounds
+    let matches = reverse("8(6-10)% reduced Attack Speed");
+    assert_eq!(matches[0].stats[0].value, Some(-8.0));
+    assert_eq!(matches[0].stats[0].min, Some(-10.0));
+    assert_eq!(matches[0].stats[0].max, Some(-6.0));
+
+    // signed placeholder with the roll format
+    let matches = reverse("+25(21-28) to maximum Life");
+    assert_eq!(matches[0].stats[0].value, Some(25.0));
+    assert_eq!(matches[0].stats[0].min, Some(21.0));
+    assert_eq!(matches[0].stats[0].max, Some(28.0));
+}
+
+#[test]
+fn reverse_text_splits_pasted_lines() {
+    let descriptions = StatDescriptions::parse(FIXTURE).unwrap();
+    let pasted = "  +25 to maximum Life\r\n  12% increased Attack Speed\n";
+    let results = descriptions.reverse_text(pasted, "English");
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].0, "+25 to maximum Life");
+    assert_eq!(results[0].1[0].stats[0].id, "base_maximum_life");
+    assert_eq!(results[1].0, "12% increased Attack Speed");
+    assert_eq!(results[1].1[0].stats[0].id, "attack_speed_+%");
 }
 
 #[test]

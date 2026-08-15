@@ -90,12 +90,18 @@ pub struct ReverseMatch {
     pub exact: bool,
 }
 
-/// min/max are None when the input used `#` as a wildcard, or when the stat
-/// only appears in the block's conditions, not in the text.
+/// Only what the text actually said is populated: a plain number sets
+/// `value`, a `(10-20)` range sets `min`/`max`, the in-game copy format
+/// `29(27-32)` sets all three, and a `#` wildcard (or a stat that only
+/// appears in the block's conditions) sets none.
 #[derive(Debug, Serialize, PartialEq)]
 pub struct ReverseStat {
     pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub min: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max: Option<f64>,
 }
 
@@ -103,6 +109,8 @@ pub struct ReverseStat {
 enum Capture {
     Wildcard,
     Value(f64, f64),
+    /// in-game copy format: rolled value plus the tier's roll range
+    Roll { value: f64, min: f64, max: f64 },
 }
 
 impl StatDescriptions {
@@ -238,9 +246,30 @@ impl StatDescriptions {
         Translation { lines, unmatched, hidden }
     }
 
+    /// Reverse text that may span several display lines, as pasted from the
+    /// in-game item copy. The whole text is tried first (some templates are
+    /// multi-line); otherwise each trimmed line is reversed on its own.
+    pub fn reverse_text(&self, text: &str, language: &str) -> Vec<(String, Vec<ReverseMatch>)> {
+        let normalized = text.replace("\r\n", "\n");
+        let whole = normalized.trim();
+        if whole.contains('\n') {
+            let matches = self.reverse(whole, language);
+            if !matches.is_empty() {
+                return vec![(whole.to_string(), matches)];
+            }
+            return normalized.lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(|line| (line.to_string(), self.reverse(line, language)))
+                .collect();
+        }
+        vec![(whole.to_string(), self.reverse(whole, language))]
+    }
+
     /// The inverse of translate: find every stat combination that can produce
     /// the given display text, recovering values from its numbers. Ranges
-    /// `(10-20)` and `#` wildcards are accepted where the text has a number.
+    /// `(10-20)`, the item copy roll format `29(27-32)`, and `#` wildcards
+    /// are accepted where the text has a number.
     pub fn reverse(&self, text: &str, language: &str) -> Vec<ReverseMatch> {
         let mut matches = Vec::new();
         for description in &self.descriptions {
@@ -254,34 +283,50 @@ impl StatDescriptions {
                 let Some(captures) = match_template(&variant.text, text) else { continue };
 
                 let mut exact = true;
-                let mut recovered: Vec<Option<(f64, f64)>> = Vec::with_capacity(description.stats.len());
-                for i in 0..description.stats.len() {
-                    match captures.get(&i) {
-                        Some(Capture::Value(min, max)) => {
-                            let (min, min_exact) = variant.invert_handlers(i, *min);
-                            let (max, max_exact) = variant.invert_handlers(i, *max);
-                            exact &= min_exact && max_exact;
-                            recovered.push(Some(if min <= max { (min, max) } else { (max, min) }));
+                let mut invert = |slot: usize, displayed: f64| {
+                    let (value, inversion_exact) = variant.invert_handlers(slot, displayed);
+                    exact &= inversion_exact;
+                    value
+                };
+                // per slot: (rolled value, roll range), each only when the
+                // text actually said so
+                let recovered: Vec<(Option<f64>, Option<(f64, f64)>)> = (0..description.stats.len())
+                    .map(|i| match captures.get(&i) {
+                        Some(Capture::Value(min, max)) if min == max => {
+                            (Some(invert(i, *min)), None)
                         }
-                        _ => recovered.push(None),
-                    }
-                }
+                        Some(Capture::Value(min, max)) => {
+                            let (min, max) = (invert(i, *min), invert(i, *max));
+                            (None, Some((f64::min(min, max), f64::max(min, max))))
+                        }
+                        Some(Capture::Roll { value, min, max }) => {
+                            let value = invert(i, *value);
+                            let (min, max) = (invert(i, *min), invert(i, *max));
+                            (Some(value), Some((f64::min(min, max), f64::max(min, max))))
+                        }
+                        _ => (None, None),
+                    })
+                    .collect();
 
                 // the game only renders a variant when its value conditions
                 // hold, so text like "0% increased ..." must not match a
                 // variant gated on 1|#; wildcards have no value to check
                 let conditions_hold = variant.conditions.iter().enumerate().all(|(i, condition)| {
-                    recovered.get(i).copied().flatten()
-                        .map_or(true, |(min, _)| condition.matches(min.round() as i64))
+                    let (value, range) = recovered.get(i).copied().unwrap_or((None, None));
+                    value.or(range.map(|(min, _)| min))
+                        .map_or(true, |checked| condition.matches(checked.round() as i64))
                 });
                 if !conditions_hold {
                     continue;
                 }
 
                 let stats = description.stats.iter().enumerate().map(|(i, id)| {
-                    match recovered[i] {
-                        Some((min, max)) => ReverseStat { id: id.clone(), min: Some(min), max: Some(max) },
-                        None => ReverseStat { id: id.clone(), min: None, max: None },
+                    let (value, range) = recovered[i];
+                    ReverseStat {
+                        id: id.clone(),
+                        value,
+                        min: range.map(|(min, _)| min),
+                        max: range.map(|(_, max)| max),
                     }
                 }).collect();
 
@@ -398,22 +443,44 @@ fn parse_capture(input: &str) -> Option<(Capture, &str)> {
         _ => (1.0, input),
     };
     if let Some(rest) = rest.strip_prefix('(') {
-        let (min, rest) = parse_number(rest)?;
-        let rest = rest.strip_prefix('-')?;
-        let (max, rest) = parse_number(rest)?;
-        let rest = rest.strip_prefix(')')?;
+        let ((min, max), rest) = parse_range(rest)?;
         return Some((Capture::Value(sign * min, sign * max), rest));
     }
     let (value, rest) = parse_number(rest)?;
+    // the in-game item copy format puts the tier's roll range right after
+    // the rolled value: 29(27-32)
+    if let Some(inner) = rest.strip_prefix('(') {
+        if let Some(((min, max), remaining)) = parse_range(inner) {
+            return Some((Capture::Roll {
+                value: sign * value,
+                min: sign * min,
+                max: sign * max,
+            }, remaining));
+        }
+    }
     Some((Capture::Value(sign * value, sign * value), rest))
 }
 
+/// The inside of a `(min-max)` range, both bounds possibly negative,
+/// consuming the closing parenthesis.
+fn parse_range(input: &str) -> Option<((f64, f64), &str)> {
+    let (min, rest) = parse_number(input)?;
+    let rest = rest.strip_prefix('-')?;
+    let (max, rest) = parse_number(rest)?;
+    let rest = rest.strip_prefix(')')?;
+    Some(((min, max), rest))
+}
+
 fn parse_number(input: &str) -> Option<(f64, &str)> {
-    let digits = input.find(|c: char| !c.is_ascii_digit() && c != '.').unwrap_or(input.len());
+    let (sign, rest) = match input.strip_prefix('-') {
+        Some(rest) => (-1.0, rest),
+        None => (1.0, input),
+    };
+    let digits = rest.find(|c: char| !c.is_ascii_digit() && c != '.').unwrap_or(rest.len());
     if digits == 0 {
         return None;
     }
-    input[..digits].parse().ok().map(|value| (value, &input[digits..]))
+    rest[..digits].parse().ok().map(|value: f64| (sign * value, &rest[digits..]))
 }
 
 fn parse_description<'a, I>(lines: &mut std::iter::Peekable<I>, stat_line_count: usize) -> Result<Vec<Description>, String>

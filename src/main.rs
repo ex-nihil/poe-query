@@ -121,12 +121,13 @@ fn run_untranslate(texts: &[String], file: Option<&str>, path_arg: Option<PathBu
         }
     };
 
-    let results: Vec<serde_json::Value> = texts.iter().map(|text| {
-        let matches = descriptions.reverse(text, language);
-        if matches.is_empty() {
-            warn!("no stat description matches '{}'", text);
-        }
-        serde_json::json!({ "text": text, "matches": matches })
+    let results: Vec<serde_json::Value> = texts.iter().flat_map(|text| {
+        descriptions.reverse_text(text, language).into_iter().map(|(line, matches)| {
+            if matches.is_empty() {
+                warn!("no stat description matches '{}'", line);
+            }
+            serde_json::json!({ "text": line, "matches": matches })
+        })
     }).collect();
     print_json(&results);
 }
