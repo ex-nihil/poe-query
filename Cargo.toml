@@ -16,7 +16,7 @@ path = "src/lib.rs"
 poe_bundle = "0.2.0"
 log = "0.4.11"
 simplelog = "0.12.0"
-clap = { version = "4.0", features = ["derive"] }
+clap = { version = "4.5", features = ["derive"] }
 
 pest = "2.4"
 pest_derive = "2.1.0"

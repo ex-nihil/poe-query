@@ -6,7 +6,8 @@ use std::{env, process};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
+use clap::error::ErrorKind;
 use log::*;
 use poe_bundle::BundleReader;
 use simplelog::*;
@@ -29,6 +30,7 @@ const EXIT_EVAL: i32 = 3;
 
 #[derive(clap::Parser)]
 #[command(name = "PoE Query")]
+#[command(bin_name = "poe_query")]
 #[command(author = "Daniel Dimovski <daniel@timeloop.se>")]
 #[command(version = env ! ("CARGO_PKG_VERSION"))]
 #[command(about = "Query and transform data from Path of Exile", long_about = None)]
@@ -64,7 +66,7 @@ enum Command {
 }
 
 fn main() {
-    let args = Args::parse();
+    let args = parse_args();
     init_logger(args.verbose);
     debug!("Version {:?}", env!("CARGO_PKG_VERSION"));
 
@@ -89,6 +91,23 @@ fn run_serve(path_arg: Option<PathBuf>, language: &str, schema_path: &Path) {
     info!("startup: {}ms", now.elapsed().as_millis());
 
     serve::serve(&container, &install_path);
+}
+
+/// A missing or unrecognized subcommand shows the full help (with the
+/// subcommand list) instead of just the usage line.
+fn parse_args() -> Args {
+    match Args::try_parse() {
+        Ok(args) => args,
+        Err(error) => {
+            if matches!(error.kind(), ErrorKind::MissingSubcommand | ErrorKind::InvalidSubcommand) {
+                let _ = error.print();
+                eprintln!();
+                eprintln!("{}", Args::command().render_help());
+                process::exit(2);
+            }
+            error.exit();
+        }
+    }
 }
 
 fn run_query(query: &str, path_arg: Option<PathBuf>, language: &str, schema_path: &Path) {
@@ -206,7 +225,8 @@ fn attempt_to_find_installation() -> Option<PathBuf> {
     [
         ".",
         "C:/Program Files (x86)/Grinding Gear Games/Path of Exile",
-        "C:/Program Files/Steam/steamapps/common/Path of Exile"
+        "C:/Program Files/Steam/steamapps/common/Path of Exile",
+        "/home/nihil/Games/path-of-exile/drive_c/Program Files (x86)/Grinding Gear Games/Path of Exile/"
     ].into_iter()
         .find_map(|p| {
             let path = PathBuf::from(p);
