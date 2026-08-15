@@ -19,12 +19,19 @@ use super::value::Value;
 impl QueryProcessor for StaticContext<'_> {
     fn process(&self, terms: &[Term]) -> Result<Value, QueryError> {
         let mut cache = SharedCache::default();
-        let result = self.traverse(&mut TraversalContext::default(), &mut cache, terms)?;
-        self.materialize(&mut cache, result)
+        self.process_with_cache(&mut cache, terms)
     }
 }
 
 impl<'a> StaticContext<'a> {
+    /// Evaluate a query reusing a caller-owned cache, so decoded data files
+    /// survive across queries in a long-lived process. Query-local variables
+    /// are cleared on entry so nothing leaks between queries.
+    pub fn process_with_cache(&self, cache: &mut SharedCache, terms: &[Term]) -> Result<Value, QueryError> {
+        cache.variables.clear();
+        let result = self.traverse(&mut TraversalContext::default(), cache, terms)?;
+        self.materialize(cache, result)
+    }
     /// Expand any remaining lazy row handles into full objects so the
     /// serialized output is identical to the eager representation.
     fn materialize(&self, cache: &mut SharedCache, value: Value) -> Result<Value, QueryError> {

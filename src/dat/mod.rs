@@ -43,6 +43,10 @@ impl<'a> DatReader<'a> {
         }
     }
 
+    pub fn specs(&self) -> &HashMap<String, FileSpec> {
+        &self.specs
+    }
+
     fn get_filepath(&self, filename: &str) -> String {
         let name = filename.to_lowercase();
         if self.language == "English" {

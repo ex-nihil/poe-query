@@ -20,6 +20,7 @@ mod dat;
 mod error;
 mod introspect;
 mod query;
+mod serve;
 mod traversal;
 
 const EXIT_SETUP: i32 = 1;
@@ -58,6 +59,8 @@ enum Command {
     Tables,
     /// Show a table's columns with types, references, and enum values
     Describe { table: String },
+    /// Answer NDJSON requests over stdio (one request per line)
+    Serve,
 }
 
 fn main() {
@@ -72,7 +75,20 @@ fn main() {
         Command::Query { query } => run_query(&query, args.path, &args.language, &schema_path),
         Command::Tables => run_tables(&schema_path),
         Command::Describe { table } => run_describe(&schema_path, &table),
+        Command::Serve => run_serve(args.path, &args.language, &schema_path),
     }
+}
+
+fn run_serve(path_arg: Option<PathBuf>, language: &str, schema_path: &Path) {
+    let install_path = find_poe_install(path_arg);
+    info!("Using: {:?}", install_path);
+
+    let now = Instant::now();
+    let bundles = BundleReader::from_install(&install_path);
+    let container = DatReader::from_install(language, &bundles, schema_path);
+    info!("startup: {}ms", now.elapsed().as_millis());
+
+    serve::serve(&container, &install_path);
 }
 
 fn run_query(query: &str, path_arg: Option<PathBuf>, language: &str, schema_path: &Path) {

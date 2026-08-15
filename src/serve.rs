@@ -1,0 +1,198 @@
+use std::io::{self, BufRead, Write};
+use std::path::Path;
+use std::time::Instant;
+
+use log::*;
+use serde::{Deserialize, Serialize};
+
+use crate::dat::DatReader;
+use crate::error::QueryError;
+use crate::introspect;
+use crate::query;
+use crate::traversal::{QueryProcessor, SharedCache, StaticContext};
+
+/// NDJSON protocol over stdio: one request per line on stdin, one response
+/// per line on stdout. Logs stay on stderr. Single-threaded; requests are
+/// answered in order. EOF on stdin ends the session.
+///
+///   {"id": 1, "method": "query",    "params": {"query": ".Mods[0].Id"}}
+///   {"id": 2, "method": "tables"}
+///   {"id": 3, "method": "describe", "params": {"table": "Mods"}}
+///   {"id": 4, "method": "ping"}
+#[derive(Deserialize)]
+struct Request {
+    #[serde(default)]
+    id: serde_json::Value,
+    method: String,
+    #[serde(default)]
+    params: Params,
+}
+
+#[derive(Deserialize, Default)]
+struct Params {
+    query: Option<String>,
+    table: Option<String>,
+}
+
+#[derive(Serialize)]
+struct Response {
+    id: serde_json::Value,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    result: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<ErrorBody>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timings: Option<Timings>,
+}
+
+#[derive(Serialize)]
+struct ErrorBody {
+    kind: String,
+    message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    suggestion: Option<String>,
+}
+
+#[derive(Serialize)]
+struct Timings {
+    parse_ms: u128,
+    eval_ms: u128,
+}
+
+impl Response {
+    fn ok(id: serde_json::Value, result: serde_json::Value, timings: Option<Timings>) -> Self {
+        Response { id, ok: true, result: Some(result), error: None, timings }
+    }
+
+    fn error(id: serde_json::Value, error: ErrorBody) -> Self {
+        Response { id, ok: false, result: None, error: Some(error), timings: None }
+    }
+
+    fn query_error(id: serde_json::Value, error: QueryError) -> Self {
+        let suggestion = match &error {
+            QueryError::UnknownTable { suggestion, .. } => suggestion.clone(),
+            QueryError::UnknownColumn { suggestion, .. } => suggestion.clone(),
+            _ => None,
+        };
+        Self::error(id, ErrorBody {
+            kind: error.kind().to_string(),
+            message: error.to_string(),
+            suggestion,
+        })
+    }
+
+    fn bad_request(id: serde_json::Value, message: impl Into<String>) -> Self {
+        Self::error(id, ErrorBody {
+            kind: "bad_request".to_string(),
+            message: message.into(),
+            suggestion: None,
+        })
+    }
+}
+
+pub fn serve(container: &DatReader, install_path: &Path) {
+    let context = StaticContext::new(container);
+    let mut cache = SharedCache::default();
+
+    let stdin = io::stdin();
+    let stdout = io::stdout();
+    let mut output = stdout.lock();
+
+    info!("Serving NDJSON requests on stdin, one per line");
+    for line in stdin.lock().lines() {
+        let Ok(line) = line else { break };
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let response = handle_line(&line, &context, &mut cache, container, install_path);
+        match serde_json::to_string(&response) {
+            Ok(serialized) => {
+                if writeln!(output, "{}", serialized).and_then(|_| output.flush()).is_err() {
+                    break;
+                }
+            }
+            Err(error) => error!("failed to serialize response: {}", error),
+        }
+    }
+}
+
+fn handle_line(
+    line: &str,
+    context: &StaticContext,
+    cache: &mut SharedCache,
+    container: &DatReader,
+    install_path: &Path,
+) -> Response {
+    let request: Request = match serde_json::from_str(line) {
+        Ok(request) => request,
+        Err(error) => {
+            return Response::bad_request(serde_json::Value::Null, format!("malformed request: {}", error));
+        }
+    };
+    let id = request.id.clone();
+
+    match request.method.as_str() {
+        "query" => {
+            let Some(query_text) = request.params.query else {
+                return Response::bad_request(id, "method 'query' requires params.query");
+            };
+            handle_query(id, &query_text, context, cache)
+        }
+        "tables" => {
+            let names = introspect::table_names(container.specs());
+            match serde_json::to_value(names) {
+                Ok(result) => Response::ok(id, result, None),
+                Err(error) => Response::bad_request(id, error.to_string()),
+            }
+        }
+        "describe" => {
+            let Some(table) = request.params.table else {
+                return Response::bad_request(id, "method 'describe' requires params.table");
+            };
+            match introspect::describe(container.specs(), &table) {
+                Ok(description) => match serde_json::to_value(description) {
+                    Ok(result) => Response::ok(id, result, None),
+                    Err(error) => Response::bad_request(id, error.to_string()),
+                },
+                Err(error) => Response::query_error(id, error),
+            }
+        }
+        "ping" => {
+            let result = serde_json::json!({
+                "version": env!("CARGO_PKG_VERSION"),
+                "install": install_path.to_string_lossy(),
+                "tables": container.specs().len(),
+            });
+            Response::ok(id, result, None)
+        }
+        unknown => Response::bad_request(id, format!("unknown method '{}'", unknown)),
+    }
+}
+
+fn handle_query(
+    id: serde_json::Value,
+    query_text: &str,
+    context: &StaticContext,
+    cache: &mut SharedCache,
+) -> Response {
+    let now = Instant::now();
+    let terms = match query::parse_query(query_text) {
+        Ok(terms) => terms,
+        Err(error) => return Response::query_error(id, error),
+    };
+    let parse_ms = now.elapsed().as_millis();
+
+    let now = Instant::now();
+    let result = match context.process_with_cache(cache, &terms) {
+        Ok(value) => value,
+        Err(error) => return Response::query_error(id, error),
+    };
+    let eval_ms = now.elapsed().as_millis();
+
+    match serde_json::to_value(&result) {
+        Ok(result) => Response::ok(id, result, Some(Timings { parse_ms, eval_ms })),
+        Err(error) => Response::query_error(id, QueryError::internal(error.to_string())),
+    }
+}

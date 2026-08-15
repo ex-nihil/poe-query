@@ -16,6 +16,7 @@ The binary is organized into subcommands:
 poe_query query "<query>"     # run a query against the game data
 poe_query tables              # list every table in the schema (no install needed)
 poe_query describe <Table>    # show a table's columns, types, references, enums
+poe_query serve               # answer NDJSON requests over stdio
 ```
 
 Shared flags: `-p <INSTALL_DIR>`, `-l <LANGUAGE>`, `-s <SCHEMA_DIR>` (defaults to
@@ -109,6 +110,25 @@ $ poe_query query '.Mods[0] | [.SpawnWeight_TagsKeys[].Id, .SpawnWeight_Values] 
 }
 ```
 There's an alias for the map/reduce operation above named `zip_to_obj` that can be used instead.
+
+## Serve mode
+
+`poe_query serve` indexes the installation once and then answers requests in a
+loop: one JSON request per line on stdin, one JSON response per line on stdout
+(logs stay on stderr). Decoded data files are cached across requests, so
+repeated queries against the same tables skip the startup cost entirely.
+
+```sh
+$ echo '{"id": 1, "method": "query", "params": {"query": ".Mods[0].Id"}}' | poe_query serve
+{"id":1,"ok":true,"result":"Strength1","timings":{"parse_ms":0,"eval_ms":28}}
+```
+
+Methods: `query` (`params.query`), `tables`, `describe` (`params.table`), and
+`ping` (version, install path, table count). Failures come back in-band as
+`{"ok": false, "error": {"kind", "message", "suggestion"}}` where `kind` is a
+stable discriminator (`parse`, `unknown_table`, `unknown_column`, `type_error`,
+`missing_data_file`, `schema_mismatch`, `unsupported`, `internal`,
+`bad_request`).
 
 # wishlist (TODO)
  - translations
