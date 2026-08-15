@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use serde::Serialize;
 
-use crate::dat::specification::FileSpec;
+use crate::dat::specification::{FieldSpec, FileSpec};
 use crate::error::{closest_name, QueryError};
 
 #[derive(Debug, Serialize)]
@@ -54,4 +54,41 @@ pub fn describe(specs: &HashMap<String, FileSpec>, table: &str) -> Result<TableD
     }).collect();
 
     Ok(TableDescription { table: spec.file_name.clone(), columns })
+}
+
+/// One line per column: the column name mapped to a dense type notation.
+/// Foreign keys show their target (`ModType`, `Tags.Id`), lists are
+/// bracketed (`[u32]`, `[Tags]`), enums list their values.
+pub fn describe_compact(specs: &HashMap<String, FileSpec>, table: &str) -> Result<serde_json::Value, QueryError> {
+    let description = describe(specs, table)?;
+    let spec = specs.values().find(|s| s.file_name == description.table).unwrap();
+
+    let mut columns = serde_json::Map::new();
+    for field in &spec.file_fields {
+        columns.insert(field.field_name.clone(), serde_json::Value::String(compact_type(field)));
+    }
+    Ok(serde_json::json!({
+        "table": description.table,
+        "columns": columns,
+    }))
+}
+
+fn compact_type(field: &FieldSpec) -> String {
+    if let Some(enum_spec) = &field.enum_name {
+        return format!("enum({})", enum_spec.values().join("|"));
+    }
+    let base = if let Some(target) = &field.file_name {
+        match &field.file_reference_key {
+            Some(column) => format!("{}.{}", target, column),
+            None => target.clone(),
+        }
+    } else {
+        // strip the internal storage encoding: "ref|string" -> "string"
+        field.field_type.rsplit('|').next().unwrap_or(&field.field_type).to_string()
+    };
+    if field.field_type.starts_with("list|") {
+        format!("[{}]", base)
+    } else {
+        base
+    }
 }

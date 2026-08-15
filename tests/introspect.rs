@@ -40,6 +40,18 @@ fn describes_columns_and_references() {
 }
 
 #[test]
+fn compact_describe_maps_columns_to_dense_types() {
+    let compact = introspect::describe_compact(&example_specs(), "Mods").unwrap();
+    assert_eq!(compact["table"], "Mods");
+    assert_eq!(compact["columns"]["Id"], "string");
+    assert_eq!(compact["columns"]["Weight"], "u32");
+    assert_eq!(compact["columns"]["ModTypeKey"], "ModType");
+    // schema order is preserved, not alphabetical
+    let keys: Vec<&String> = compact["columns"].as_object().unwrap().keys().collect();
+    assert_eq!(keys, ["Id", "Weight", "ModTypeKey"]);
+}
+
+#[test]
 fn describe_unknown_table_suggests() {
     let error = introspect::describe(&example_specs(), "Modz").unwrap_err();
     assert_eq!(error, QueryError::UnknownTable {
