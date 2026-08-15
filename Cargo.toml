@@ -13,7 +13,7 @@ name = "poe_query_lib"
 path = "src/lib.rs"
 
 [dependencies]
-poe_bundle = { path = "../poe-bundle" }
+poe_bundle = "0.2.0"
 log = "0.4.11"
 simplelog = "0.12.0"
 clap = { version = "4.0", features = ["derive"] }
