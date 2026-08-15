@@ -60,7 +60,12 @@ enum Command {
     /// List every table available in the schema
     Tables,
     /// Show a table's columns with types, references, and enum values
-    Describe { table: String },
+    Describe {
+        table: String,
+        /// Full structured output instead of the compact column map
+        #[arg(long)]
+        full: bool,
+    },
     /// Answer NDJSON requests over stdio (one request per line)
     Serve,
 }
@@ -76,7 +81,7 @@ fn main() {
     match args.command {
         Command::Query { query } => run_query(&query, args.path, &args.language, &schema_path),
         Command::Tables => run_tables(&schema_path),
-        Command::Describe { table } => run_describe(&schema_path, &table),
+        Command::Describe { table, full } => run_describe(&schema_path, &table, full),
         Command::Serve => run_serve(args.path, &args.language, &schema_path),
     }
 }
@@ -161,14 +166,16 @@ fn run_tables(schema_path: &Path) {
     print_json(&introspect::table_names(&specs));
 }
 
-fn run_describe(schema_path: &Path, table: &str) {
+fn run_describe(schema_path: &Path, table: &str, full: bool) {
     let (specs, _) = dat::load_schema(schema_path);
-    match introspect::describe(&specs, table) {
-        Ok(description) => print_json(&description),
-        Err(error) => {
-            error!("{}", error);
-            process::exit(EXIT_EVAL);
-        }
+    let result = if full {
+        introspect::describe(&specs, table).map(|description| print_json(&description))
+    } else {
+        introspect::describe_compact(&specs, table).map(|description| print_json(&description))
+    };
+    if let Err(error) = result {
+        error!("{}", error);
+        process::exit(EXIT_EVAL);
     }
 }
 
