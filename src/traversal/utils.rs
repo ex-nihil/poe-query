@@ -2,7 +2,7 @@ use crate::Value;
 
 pub fn iterate<F>(value: Value, mut action: F) -> Value
     where
-        F: FnMut(Value) -> Option<Value> + Send + Sync,
+        F: FnMut(Value) -> Option<Value>,
 {
     match value {
         Value::Iterator(elements) => {

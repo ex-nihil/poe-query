@@ -1,13 +1,14 @@
 use std::cmp::min;
 use std::collections::HashMap;
 use std::process;
+use std::rc::Rc;
 
 use log::*;
 
 use crate::{Term};
 use crate::dat::file::DatFile;
 use crate::dat::DatStoreImpl;
-use crate::dat::specification::{FieldSpecImpl, FileSpec};
+use crate::dat::specification::{FieldSpecImpl, FileSpec, FileSpecImpl};
 use crate::query::{Compare, Operation};
 use crate::traversal::{StaticContext, QueryProcessor};
 use crate::traversal::utils::{iterate, reduce};
@@ -17,7 +18,58 @@ use super::value::Value;
 /** entry point */
 impl QueryProcessor for StaticContext<'_> {
     fn process(&self, terms: &[Term]) -> Value {
-        self.traverse(&mut TraversalContext::default(), &mut SharedCache::default(), terms)
+        let mut cache = SharedCache::default();
+        let result = self.traverse(&mut TraversalContext::default(), &mut cache, terms);
+        self.materialize(&mut cache, result)
+    }
+}
+
+impl<'a> StaticContext<'a> {
+    /// Expand any remaining lazy row handles into full objects so the
+    /// serialized output is identical to the eager representation.
+    fn materialize(&self, cache: &mut SharedCache, value: Value) -> Value {
+        match value {
+            Value::Row(file, row) => self.materialize_row(cache, &file, row),
+            Value::List(items) => Value::List(
+                items.into_iter().map(|v| self.materialize(cache, v)).collect()),
+            Value::Iterator(items) => Value::Iterator(
+                items.into_iter().map(|v| self.materialize(cache, v)).collect()),
+            Value::Object(inner) => Value::Object(Box::new(self.materialize(cache, *inner))),
+            Value::KeyValue(key, value) => Value::KeyValue(
+                Box::new(self.materialize(cache, *key)),
+                Box::new(self.materialize(cache, *value)),
+            ),
+            other => other,
+        }
+    }
+
+    fn materialize_row(&self, cache: &mut SharedCache, file_name: &str, row: u64) -> Value {
+        let store = self.store.unwrap();
+        let spec = store.spec(file_name).unwrap();
+        let file = cache.files.entry(file_name.to_string())
+            .or_insert_with(|| store.file_by_filename(file_name).unwrap());
+
+        let kv_list: Vec<Value> = spec
+            .file_fields
+            .iter()
+            .map(|field| {
+                Value::KeyValue(
+                    Box::new(Value::Str(field.field_name.clone())),
+                    Box::new(file.read_field(row, field)),
+                )
+            })
+            .collect();
+        Value::Object(Box::new(Value::List(kv_list)))
+    }
+
+    /// Read a single column of a single row, loading the file on first use.
+    fn read_row_field(&self, cache: &mut SharedCache, file_name: &str, row: u64, field_name: &str) -> Value {
+        let store = self.store.unwrap();
+        let Some(spec) = store.spec(file_name) else { return Value::Empty };
+        let Some(field) = spec.field(field_name) else { return Value::Empty };
+        let file = cache.files.entry(file_name.to_string())
+            .or_insert_with(|| store.file_by_filename(file_name).unwrap());
+        file.read_field(row, field)
     }
 }
 
@@ -50,7 +102,7 @@ trait DataTraverser<'a> {
     fn identity(&self, context: &mut TraversalContext) -> Value;
 
     fn enter_foreign(&self, context: &mut TraversalContext, cache: &mut SharedCache);
-    fn rows_from(&self, cache: &mut SharedCache, file: &str, indices: &[u64]) -> Value;
+    fn rows_from(&self, file: &str, indices: &[u64]) -> Value;
 }
 
 impl<'a> DataTraverser<'a> for StaticContext<'a> {
@@ -293,6 +345,13 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                     Value::Str(string) => Some(Value::U64(string.chars().count() as u64)),
                     Value::List(list) => Some(Value::U64(list.len() as u64)),
                     Value::Iterator(iterable) => Some(Value::U64(iterable.len() as u64)),
+                    Value::Row(file, _) => {
+                        let fields = self.store
+                            .and_then(|s| s.spec(&file))
+                            .map(|spec| spec.file_fields.len())
+                            .unwrap_or(0);
+                        Some(Value::U64(fields as u64))
+                    }
                     Value::Object(data) => {
                         match *data {
                             Value::List(pairs) | Value::Iterator(pairs) => Some(Value::U64(pairs.len() as u64)),
@@ -303,6 +362,17 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                     value => unimplemented!("Unsupported type '{:?}' for 'length' operation", value)
                 },
                 Term::Keys => match context.identity() {
+                    Value::Row(file, _) => {
+                        let keys = self.store
+                            .and_then(|s| s.spec(&file))
+                            .map(|spec| {
+                                spec.file_fields.iter()
+                                    .map(|field| Value::Str(field.field_name.clone()))
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        Some(Value::List(keys))
+                    }
                     Value::Object(data) => {
                         match *data {
                             Value::List(pairs) | Value::Iterator(pairs) => {
@@ -381,23 +451,12 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
 
         self.enter_foreign(context, cache);
         if let (Some(spec), None) = (spec, &context.current_file) {
-            // generate initial values
+            // the file is only loaded for its row count; fields are read lazily
             let file = cache.files.entry(spec.file_name.to_string()).or_insert_with(|| self.store.unwrap().file_by_filename(&spec.file_name).unwrap());
 
-            let values: Vec<Value> = (0..file.rows_count)
-                .map(|i| {
-                    let kv_list: Vec<Value> = spec
-                        .file_fields
-                        .iter()
-                        .map(|field| {
-                            Value::KeyValue(
-                                Box::new(Value::Str(field.field_name.clone())),
-                                Box::new(file.read_field(i as u64, field)),
-                            )
-                        })
-                        .collect();
-                    Value::Object(Box::new(Value::List(kv_list)))
-                })
+            let file_name: Rc<str> = Rc::from(spec.file_name.as_str());
+            let values: Vec<Value> = (0..file.rows_count as u64)
+                .map(|i| Value::Row(file_name.clone(), i))
                 .collect();
 
             context.current_field = None;
@@ -472,6 +531,15 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
         match value {
             Value::List(list) => Value::Iterator(list),
             Value::Iterator(list) => Value::Iterator(list),
+            Value::Row(file_name, row) => {
+                match self.materialize_row(cache, &file_name, row) {
+                    Value::Object(content) => match *content {
+                        Value::List(fields) | Value::Iterator(fields) => Value::Iterator(fields),
+                        _ => Value::Iterator(Vec::with_capacity(0)),
+                    },
+                    _ => Value::Iterator(Vec::with_capacity(0)),
+                }
+            }
             Value::Object(content) => {
                 let fields = match *content {
                     Value::List(fields) | Value::Iterator(fields) => fields,
@@ -525,11 +593,22 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                     }
                 }
             }
+            Value::Row(file_name, row) => {
+                let wanted = wanted.as_deref().unwrap();
+                context.current_file = Some(file_name.to_string());
+                self.read_row_field(cache, &file_name, row, wanted)
+            }
             Value::Iterator(values) => {
                 let wanted = wanted.as_deref().unwrap();
+                let mut row_file: Option<Rc<str>> = None;
                 let mut result = Vec::new();
                 for value in values {
                     let item = match value {
+                        Value::Row(file_name, row) => {
+                            let item = self.read_row_field(cache, &file_name, row, wanted);
+                            row_file = Some(file_name);
+                            item
+                        }
                         Value::KeyValue(k, v) => {
                             if matches!(k.as_ref(), Value::Str(k) if k.as_str() == wanted) {
                                 *v
@@ -571,6 +650,9 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                     result.push(item);
                 }
 
+                if let Some(file_name) = row_file {
+                    context.current_file = Some(file_name.to_string());
+                }
                 Value::List(result)
             }
             Value::U64(i) => {
@@ -626,6 +708,10 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
             };
 
             let result = iterate(value, |v| {
+                // already a resolved row handle, nothing to do
+                if matches!(v, Value::Row(_, _)) {
+                    return Some(v);
+                }
                 let ids: Vec<u64> = match v {
                     Value::List(ids) => ids,
                     Value::Iterator(ids) => ids,
@@ -647,7 +733,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                     })
                     .collect();
 
-                let rows = self.rows_from(cache, current_field.file_name.as_ref().unwrap(), ids.as_slice());
+                let rows = self.rows_from(current_field.file_name.as_ref().unwrap(), ids.as_slice());
                 Some(rows)
             });
 
@@ -657,26 +743,13 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
         }
     }
 
-    fn rows_from(&self, cache: &mut SharedCache, filepath: &str, indices: &[u64]) -> Value {
+    fn rows_from(&self, filepath: &str, indices: &[u64]) -> Value {
         let foreign_spec = self.store.unwrap().spec(filepath).unwrap();
 
-        let file = cache.files.entry(filepath.to_string()).or_insert_with(|| self.store.unwrap().file_by_filename(filepath).unwrap());
-
+        let file_name: Rc<str> = Rc::from(foreign_spec.file_name.as_str());
         let values: Vec<Value> = indices
             .iter()
-            .map(|i| {
-                let kv_list: Vec<Value> = foreign_spec
-                    .file_fields
-                    .iter()
-                    .map(|field| {
-                        Value::KeyValue(
-                            Box::new(Value::Str(field.field_name.clone())),
-                            Box::new(file.read_field(*i, field)),
-                        )
-                    })
-                    .collect();
-                Value::Object(Box::new(Value::List(kv_list)))
-            })
+            .map(|i| Value::Row(file_name.clone(), *i))
             .collect();
 
         if values.len() > 1 {

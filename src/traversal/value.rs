@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 use std::fmt::Formatter;
 use std::ops::Deref;
 use std::process;
+use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -18,6 +19,10 @@ pub enum Value {
     KeyValue(Box<Value>, Box<Value>),
     Object(Box<Value>), // Make this a map instead? Comparisons might be a problem.
     Bool(bool),
+    /// Lazy handle to a table row: (file name, row index). Fields are read
+    /// on demand; any Row remaining in the final result is expanded to a
+    /// full object before serialization.
+    Row(Rc<str>, u64),
     Empty,
 }
 
@@ -34,6 +39,7 @@ impl fmt::Display for Value {
             Value::KeyValue(_, _) => write!(f, "KeyValue"),
             Value::Object(_) => write!(f, "Object"),
             Value::Bool(_) => write!(f, "Bool"),
+            Value::Row(_, _) => write!(f, "Row"),
             Value::Empty => write!(f, "Empty"),
         }
     }
@@ -175,6 +181,8 @@ impl Serialize for Value {
             Value::I64(value) => serializer.serialize_i64(*value),
             Value::F32(value) => serializer.serialize_f32(*value),
             Value::Bool(value) => serializer.serialize_bool(*value),
+            // rows are expanded before serialization; fall back to the row index
+            Value::Row(_, row) => serializer.serialize_u64(*row),
             Value::Empty => serializer.serialize_unit(),
         }
     }
@@ -198,6 +206,9 @@ impl PartialEq<Value> for Value {
             },
             (Value::Object(lhs), Value::Object(rhs)) => lhs == rhs,
             (Value::Bool(lhs), Value::Bool(rhs)) => lhs == rhs,
+            (Value::Row(lhs_file, lhs_row), Value::Row(rhs_file, rhs_row)) => {
+                lhs_file == rhs_file && lhs_row == rhs_row
+            },
             (Value::Empty, Value::Empty) => true,
             _ => false
         }
