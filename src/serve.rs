@@ -35,6 +35,7 @@ struct Params {
     query: Option<String>,
     table: Option<String>,
     stats: Option<Vec<StatParam>>,
+    texts: Option<Vec<String>>,
     file: Option<String>,
 }
 
@@ -191,17 +192,30 @@ fn handle_line(
             }
 
             let file = request.params.file.unwrap_or_else(|| "stat_descriptions".to_string());
-            if !translations.contains_key(&file) {
-                match container.stat_descriptions(Some(&file)) {
-                    Ok(descriptions) => { translations.insert(file.clone(), descriptions); }
-                    Err(error) => return Response::query_error(id, error),
-                }
-            }
-            let translation = translations[&file].translate(&stats, container.language());
+            let descriptions = match cached_descriptions(translations, container, &file) {
+                Ok(descriptions) => descriptions,
+                Err(error) => return Response::query_error(id, error),
+            };
+            let translation = descriptions.translate(&stats, container.language());
             match serde_json::to_value(translation) {
                 Ok(result) => Response::ok(id, result, None),
                 Err(error) => Response::bad_request(id, error.to_string()),
             }
+        }
+        "untranslate" => {
+            let Some(texts) = request.params.texts else {
+                return Response::bad_request(id, "method 'untranslate' requires params.texts");
+            };
+            let file = request.params.file.unwrap_or_else(|| "stat_descriptions".to_string());
+            let descriptions = match cached_descriptions(translations, container, &file) {
+                Ok(descriptions) => descriptions,
+                Err(error) => return Response::query_error(id, error),
+            };
+            let results: Vec<serde_json::Value> = texts.iter().map(|text| {
+                let matches = descriptions.reverse(text, container.language());
+                serde_json::json!({ "text": text, "matches": matches })
+            }).collect();
+            Response::ok(id, serde_json::Value::Array(results), None)
         }
         "ping" => {
             let result = serde_json::json!({
@@ -213,6 +227,19 @@ fn handle_line(
         }
         unknown => Response::bad_request(id, format!("unknown method '{}'", unknown)),
     }
+}
+
+/// Load and cache a parsed stat description file for the session.
+fn cached_descriptions<'a>(
+    translations: &'a mut HashMap<String, StatDescriptions>,
+    container: &DatReader,
+    file: &str,
+) -> Result<&'a StatDescriptions, QueryError> {
+    if !translations.contains_key(file) {
+        let descriptions = container.stat_descriptions(Some(file))?;
+        translations.insert(file.to_string(), descriptions);
+    }
+    Ok(&translations[file])
 }
 
 fn handle_query(

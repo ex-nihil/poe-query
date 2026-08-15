@@ -68,6 +68,33 @@ pub struct Translation {
     pub hidden: Vec<String>,
 }
 
+/// One way a piece of display text can be produced: the stat ids behind it
+/// with the values recovered from the text's numbers.
+#[derive(Debug, Serialize, PartialEq)]
+pub struct ReverseMatch {
+    pub stats: Vec<ReverseStat>,
+    /// the display template that matched, placeholders intact
+    pub template: String,
+    /// false when a rounding handler had to be inverted, so recovered
+    /// values may be off by the rounding error
+    pub exact: bool,
+}
+
+/// min/max are None when the input used `#` as a wildcard, or when the stat
+/// only appears in the block's conditions, not in the text.
+#[derive(Debug, Serialize, PartialEq)]
+pub struct ReverseStat {
+    pub id: String,
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Capture {
+    Wildcard,
+    Value(f64, f64),
+}
+
 impl StatDescriptions {
     /// Parse a stat description file that contains no include directives.
     pub fn parse(text: &str) -> Result<StatDescriptions, QueryError> {
@@ -183,6 +210,41 @@ impl StatDescriptions {
 
         Translation { lines, unmatched, hidden }
     }
+
+    /// The inverse of translate: find every stat combination that can produce
+    /// the given display text, recovering values from its numbers. Ranges
+    /// `(10-20)` and `#` wildcards are accepted where the text has a number.
+    pub fn reverse(&self, text: &str, language: &str) -> Vec<ReverseMatch> {
+        let mut matches = Vec::new();
+        for description in &self.descriptions {
+            let Some(variants) = description.variants.get(language)
+                .or_else(|| description.variants.get("English")) else { continue };
+
+            for variant in variants {
+                if !variant.tags.is_empty() {
+                    continue;
+                }
+                let Some(captures) = match_template(&variant.text, text) else { continue };
+
+                let mut exact = true;
+                let stats = description.stats.iter().enumerate().map(|(i, id)| {
+                    match captures.get(&i) {
+                        Some(Capture::Value(min, max)) => {
+                            let (min, min_exact) = variant.invert_handlers(i, *min);
+                            let (max, max_exact) = variant.invert_handlers(i, *max);
+                            exact &= min_exact && max_exact;
+                            let (min, max) = if min <= max { (min, max) } else { (max, min) };
+                            ReverseStat { id: id.clone(), min: Some(min), max: Some(max) }
+                        }
+                        _ => ReverseStat { id: id.clone(), min: None, max: None },
+                    }
+                }).collect();
+
+                matches.push(ReverseMatch { stats, template: variant.text.clone(), exact });
+            }
+        }
+        matches
+    }
 }
 
 impl Description {
@@ -242,6 +304,76 @@ impl Variant {
         }
         value
     }
+
+    /// Undo the handler chain to recover the stored stat value from a
+    /// displayed one. The bool is false when a rounding handler makes the
+    /// inversion approximate.
+    fn invert_handlers(&self, value_index: usize, value: f64) -> (f64, bool) {
+        let mut value = value;
+        let mut exact = true;
+        for handler in self.handlers.iter().rev() {
+            let applies_to = handler.index.unwrap_or(1) - 1;
+            if applies_to == value_index {
+                let (inverted, inversion_exact) = handler.kind.invert(value);
+                value = inverted;
+                exact &= inversion_exact;
+            }
+        }
+        (value, exact)
+    }
+}
+
+/// Match input text against a display template, capturing a value, range, or
+/// `#` wildcard at each placeholder. Returns None unless the whole input is
+/// consumed.
+fn match_template(template: &str, input: &str) -> Option<HashMap<usize, Capture>> {
+    let mut captures = HashMap::new();
+    let mut rest = input;
+    for part in template_parts(template) {
+        match part {
+            TemplatePart::Literal(literal) => {
+                rest = rest.strip_prefix(literal.as_str())?;
+            }
+            TemplatePart::Placeholder { index, .. } => {
+                let (capture, remaining) = parse_capture(rest)?;
+                captures.insert(index, capture);
+                rest = remaining;
+            }
+        }
+    }
+    rest.is_empty().then_some(captures)
+}
+
+fn parse_capture(input: &str) -> Option<(Capture, &str)> {
+    if let Some(rest) = input.strip_prefix("(#-#)") {
+        return Some((Capture::Wildcard, rest));
+    }
+    if let Some(rest) = input.strip_prefix('#') {
+        return Some((Capture::Wildcard, rest));
+    }
+
+    let (sign, rest) = match input.as_bytes().first() {
+        Some(b'+') => (1.0, &input[1..]),
+        Some(b'-') => (-1.0, &input[1..]),
+        _ => (1.0, input),
+    };
+    if let Some(rest) = rest.strip_prefix('(') {
+        let (min, rest) = parse_number(rest)?;
+        let rest = rest.strip_prefix('-')?;
+        let (max, rest) = parse_number(rest)?;
+        let rest = rest.strip_prefix(')')?;
+        return Some((Capture::Value(sign * min, sign * max), rest));
+    }
+    let (value, rest) = parse_number(rest)?;
+    Some((Capture::Value(sign * value, sign * value), rest))
+}
+
+fn parse_number(input: &str) -> Option<(f64, &str)> {
+    let digits = input.find(|c: char| !c.is_ascii_digit() && c != '.').unwrap_or(input.len());
+    if digits == 0 {
+        return None;
+    }
+    input[..digits].parse().ok().map(|value| (value, &input[digits..]))
 }
 
 fn parse_description<'a, I>(lines: &mut std::iter::Peekable<I>, stat_line_count: usize) -> Result<Vec<Description>, String>
@@ -385,42 +517,75 @@ fn parse_condition(token: &str) -> Result<Condition, String> {
     Ok(Condition { min: Some(exact), max: Some(exact), negated_value: None })
 }
 
-/// Substitute `{i}` / `{i:+d}` / `{}` placeholders. A value whose min and max
-/// differ renders as a range: `(10-20)`, signed form `+(10-20)`.
-fn render_placeholders(text: &str, values: &[(f64, f64)]) -> String {
-    let mut output = String::with_capacity(text.len());
-    let mut chars = text.char_indices().peekable();
+/// A display string split into literal text and `{i}` / `{i:+d}` / `{}`
+/// placeholders, used for rendering and for reverse matching.
+#[derive(Debug, Clone)]
+enum TemplatePart {
+    Literal(String),
+    Placeholder { index: usize, signed: bool },
+}
+
+fn template_parts(text: &str) -> Vec<TemplatePart> {
+    let mut parts = Vec::new();
+    let mut literal = String::new();
+    let mut rest = text;
     let mut sequential = 0usize;
 
-    while let Some((start, c)) = chars.next() {
-        if c != '{' {
-            output.push(c);
-            continue;
-        }
-        let Some(end) = text[start..].find('}') else {
-            output.push(c);
-            continue;
-        };
-        let inner = &text[start + 1..start + end];
-        for _ in 0..inner.chars().count() + 1 {
-            chars.next();
-        }
+    while let Some(open) = rest.find('{') {
+        let after = &rest[open + 1..];
+        let placeholder = after.find('}').and_then(|close| {
+            let inner = &after[..close];
+            let (index_part, format_part) = match inner.split_once(':') {
+                Some((index, format)) => (index, Some(format)),
+                None => (inner, None),
+            };
+            if !index_part.chars().all(|c| c.is_ascii_digit()) {
+                return None;
+            }
+            let index = if index_part.is_empty() {
+                let index = sequential;
+                sequential += 1;
+                index
+            } else {
+                index_part.parse().ok()?
+            };
+            Some((close, TemplatePart::Placeholder { index, signed: format_part == Some("+d") }))
+        });
 
-        let (index_part, format_part) = match inner.split_once(':') {
-            Some((index, format)) => (index, Some(format)),
-            None => (inner, None),
-        };
-        let index = if index_part.is_empty() {
-            let index = sequential;
-            sequential += 1;
-            index
-        } else {
-            index_part.parse().unwrap_or(0)
-        };
+        match placeholder {
+            Some((close, part)) => {
+                literal.push_str(&rest[..open]);
+                if !literal.is_empty() {
+                    parts.push(TemplatePart::Literal(std::mem::take(&mut literal)));
+                }
+                parts.push(part);
+                rest = &after[close + 1..];
+            }
+            None => {
+                literal.push_str(&rest[..open + 1]);
+                rest = &rest[open + 1..];
+            }
+        }
+    }
+    literal.push_str(rest);
+    if !literal.is_empty() {
+        parts.push(TemplatePart::Literal(literal));
+    }
+    parts
+}
 
-        let (min, max) = values.get(index).copied().unwrap_or((0.0, 0.0));
-        let signed = format_part == Some("+d");
-        output.push_str(&format_value(min, max, signed));
+/// Substitute placeholders. A value whose min and max differ renders as a
+/// range: `(10-20)`, signed form `+(10-20)`.
+fn render_placeholders(text: &str, values: &[(f64, f64)]) -> String {
+    let mut output = String::with_capacity(text.len());
+    for part in template_parts(text) {
+        match part {
+            TemplatePart::Literal(literal) => output.push_str(&literal),
+            TemplatePart::Placeholder { index, signed } => {
+                let (min, max) = values.get(index).copied().unwrap_or((0.0, 0.0));
+                output.push_str(&format_value(min, max, signed));
+            }
+        }
     }
     output
 }
@@ -557,6 +722,43 @@ impl HandlerKind {
             PerMinuteToPerSecond1dp => round_dp(v / 60.0, 1),
             PerMinuteToPerSecond2dp => round_dp(v / 60.0, 2),
             ReminderString | Passthrough => v,
+        }
+    }
+
+    /// Inverse of apply(). The bool is false when apply() rounds, making the
+    /// recovered value approximate.
+    fn invert(&self, v: f64) -> (f64, bool) {
+        use HandlerKind::*;
+        match self {
+            Negate => (-v, true),
+            ThirtyPercentOfValue => (v / 0.3, true),
+            SixtyPercentOfValue => (v / 0.6, true),
+            DecisecondsToSeconds => (v * 10.0, true),
+            DivideByThree => (v * 3.0, true),
+            DivideByFive => (v * 5.0, true),
+            DivideBySix => (v * 6.0, true),
+            DivideByTen0dp => (v * 10.0, false),
+            DivideByTwelve => (v * 12.0, true),
+            DivideByFifteen0dp => (v * 15.0, false),
+            DivideByTwo0dp => (v * 2.0, false),
+            DivideByTwentyThenDouble0dp => (v * 10.0, false),
+            DivideByOneHundred => (v * 100.0, true),
+            DivideByOneHundredAndNegate => (-v * 100.0, true),
+            DivideByOneHundred2dp => (v * 100.0, false),
+            MillisecondsToSeconds => (v * 1000.0, true),
+            MillisecondsToSeconds0dp => (v * 1000.0, false),
+            MillisecondsToSeconds1dp => (v * 1000.0, false),
+            MillisecondsToSeconds2dp => (v * 1000.0, false),
+            MultiplicativeDamageModifier => (v - 100.0, true),
+            MultiplicativePermyriadDamageModifier => ((v - 100.0) * 100.0, true),
+            MultiplyByFour => (v / 4.0, true),
+            TimesTwenty => (v / 20.0, true),
+            OldLeechPercent => (v * 5.0, true),
+            OldLeechPermyriad => (v * 500.0, true),
+            PerMinuteToPerSecond0dp => (v * 60.0, false),
+            PerMinuteToPerSecond1dp => (v * 60.0, false),
+            PerMinuteToPerSecond2dp => (v * 60.0, false),
+            ReminderString | Passthrough => (v, true),
         }
     }
 }

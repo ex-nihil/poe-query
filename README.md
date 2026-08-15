@@ -17,6 +17,7 @@ poe_query query "<query>"     # run a query against the game data
 poe_query tables              # list every table in the schema (no install needed)
 poe_query describe <Table>    # show a table's columns, types, references, enums
 poe_query translate <id=val>  # render stat ids and values as in-game text
+poe_query untranslate <text>  # find the stat ids behind a line of in-game text
 poe_query serve               # answer NDJSON requests over stdio
 ```
 
@@ -134,6 +135,22 @@ $ poe_query translate base_maximum_life=10..20 attack_speed_+%=-8
 `unmatched` lists ids no description block knows; `hidden` lists ids the game
 intentionally never displays (`no_description`).
 
+`untranslate` is the inverse: given display text it returns every stat
+combination that can produce it, with values recovered from the numbers
+(handlers are inverted, so "reduced" wording comes back negative). Numbers,
+`(10-20)` ranges, and `#` wildcards are accepted. Ambiguous lines return all
+candidates, and `exact: false` marks values recovered through a rounding
+handler.
+
+```sh
+$ poe_query untranslate "12% increased Attack Speed"
+[{ "text": "12% increased Attack Speed",
+   "matches": [
+     { "stats": [{"id": "attack_speed_+%",       "min": 12.0, "max": 12.0}], ... },
+     { "stats": [{"id": "local_attack_speed_+%", "min": 12.0, "max": 12.0}], ... }
+   ] }]
+```
+
 ## Serve mode
 
 `poe_query serve` indexes the installation once and then answers requests in a
@@ -147,8 +164,9 @@ $ echo '{"id": 1, "method": "query", "params": {"query": ".Mods[0].Id"}}' | poe_
 ```
 
 Methods: `query` (`params.query`), `tables`, `describe` (`params.table`),
-`translate` (`params.stats` as `[{"id", "value"}]` or `[{"id", "min", "max"}]`,
-optional `params.file`; parsed description files are cached for the session),
+`translate` (`params.stats` as `[{"id", "value"}]` or `[{"id", "min", "max"}]`),
+`untranslate` (`params.texts` as an array of display lines) — both take an
+optional `params.file` and cache parsed description files for the session —
 and `ping` (version, install path, table count). Failures come back in-band as
 `{"ok": false, "error": {"kind", "message", "suggestion"}}` where `kind` is a
 stable discriminator (`parse`, `unknown_table`, `unknown_column`, `type_error`,

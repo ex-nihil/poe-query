@@ -165,6 +165,82 @@ fn include_directives_resolve_through_loader() {
     assert_eq!(result.lines, vec!["1 included", "2 extra"]);
 }
 
+fn reverse(text: &str) -> Vec<poe_query_lib::translate::ReverseMatch> {
+    StatDescriptions::parse(FIXTURE).unwrap().reverse(text, "English")
+}
+
+#[test]
+fn reverse_recovers_value_and_id() {
+    let matches = reverse("+25 to maximum Life");
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].stats[0].id, "base_maximum_life");
+    assert_eq!(matches[0].stats[0].min, Some(25.0));
+    assert_eq!(matches[0].stats[0].max, Some(25.0));
+    assert!(matches[0].exact);
+}
+
+#[test]
+fn reverse_inverts_negate() {
+    let matches = reverse("8% reduced Attack Speed");
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].stats[0].id, "attack_speed_+%");
+    assert_eq!(matches[0].stats[0].min, Some(-8.0));
+
+    let matches = reverse("12% increased Attack Speed");
+    assert_eq!(matches[0].stats[0].min, Some(12.0));
+}
+
+#[test]
+fn reverse_accepts_ranges_and_wildcards() {
+    let matches = reverse("+(10-20) to maximum Life");
+    assert_eq!(matches[0].stats[0].min, Some(10.0));
+    assert_eq!(matches[0].stats[0].max, Some(20.0));
+
+    let matches = reverse("#% increased Attack Speed");
+    assert_eq!(matches[0].stats[0].id, "attack_speed_+%");
+    assert_eq!(matches[0].stats[0].min, None);
+    assert_eq!(matches[0].stats[0].max, None);
+}
+
+#[test]
+fn reverse_recovers_both_stats_of_a_block() {
+    let matches = reverse("Deals 5 to 12 Fire Damage");
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].stats[0].id, "spell_minimum_base_fire_damage");
+    assert_eq!(matches[0].stats[0].min, Some(5.0));
+    assert_eq!(matches[0].stats[1].id, "spell_maximum_base_fire_damage");
+    assert_eq!(matches[0].stats[1].min, Some(12.0));
+}
+
+#[test]
+fn reverse_inverts_handlers_and_flags_approximation() {
+    // divide_by_one_hundred_2dp rounds, so the inversion is approximate
+    let matches = reverse("0.25% chance to drop Breachstones");
+    assert_eq!(matches[0].stats[0].id, "breach_splinter_conversion_permyriad");
+    assert_eq!(matches[0].stats[0].min, Some(25.0));
+    assert!(!matches[0].exact);
+
+    let matches = reverse("4.5 second Cooldown");
+    assert_eq!(matches[0].stats[0].id, "skill_cooldown_ms");
+    assert_eq!(matches[0].stats[0].min, Some(4500.0));
+}
+
+#[test]
+fn reverse_without_a_match_is_empty() {
+    assert!(reverse("This text appears on no item").is_empty());
+    // partial prefix must not match
+    assert!(reverse("+25 to maximum Life and then some").is_empty());
+}
+
+#[test]
+fn reverse_respects_language() {
+    let descriptions = StatDescriptions::parse(FIXTURE).unwrap();
+    let matches = descriptions.reverse("+25 zu maximalem Leben", "German");
+    assert_eq!(matches.len(), 1);
+    assert_eq!(matches[0].stats[0].id, "base_maximum_life");
+    assert!(descriptions.reverse("+25 zu maximalem Leben", "English").is_empty());
+}
+
 #[test]
 fn unresolved_include_is_an_error() {
     let error = StatDescriptions::parse("include \"missing.txt\"\r\n").unwrap_err();

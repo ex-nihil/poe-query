@@ -76,6 +76,15 @@ enum Command {
         #[arg(long)]
         file: Option<String>,
     },
+    /// Find the stat ids behind lines of in-game text
+    Untranslate {
+        /// Display text, numbers or # wildcards, e.g. "12% increased Attack Speed"
+        #[arg(required = true)]
+        texts: Vec<String>,
+        /// Stat description file base name (default: stat_descriptions)
+        #[arg(long)]
+        file: Option<String>,
+    },
     /// Answer NDJSON requests over stdio (one request per line)
     Serve,
 }
@@ -93,8 +102,33 @@ fn main() {
         Command::Tables => run_tables(&schema_path),
         Command::Describe { table, full } => run_describe(&schema_path, &table, full),
         Command::Translate { stats, file } => run_translate(&stats, file.as_deref(), args.path, &args.language, &schema_path),
+        Command::Untranslate { texts, file } => run_untranslate(&texts, file.as_deref(), args.path, &args.language, &schema_path),
         Command::Serve => run_serve(args.path, &args.language, &schema_path),
     }
+}
+
+fn run_untranslate(texts: &[String], file: Option<&str>, path_arg: Option<PathBuf>, language: &str, schema_path: &Path) {
+    let install_path = find_poe_install(path_arg);
+    info!("Using: {:?}", install_path);
+    let bundles = BundleReader::from_install(&install_path);
+    let container = DatReader::from_install(language, &bundles, schema_path);
+
+    let descriptions = match container.stat_descriptions(file) {
+        Ok(descriptions) => descriptions,
+        Err(error) => {
+            error!("{}", error);
+            process::exit(EXIT_EVAL);
+        }
+    };
+
+    let results: Vec<serde_json::Value> = texts.iter().map(|text| {
+        let matches = descriptions.reverse(text, language);
+        if matches.is_empty() {
+            warn!("no stat description matches '{}'", text);
+        }
+        serde_json::json!({ "text": text, "matches": matches })
+    }).collect();
+    print_json(&results);
 }
 
 fn run_translate(stats: &[String], file: Option<&str>, path_arg: Option<PathBuf>, language: &str, schema_path: &Path) {
