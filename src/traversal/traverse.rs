@@ -46,7 +46,7 @@ trait DataTraverser<'a> {
     fn index_reverse(&self, context: &mut TraversalContext, index: usize);
     fn slice(&self, context: &mut TraversalContext, from: i64, to: i64);
     fn to_iterable(&self, context: &mut TraversalContext, cache: &mut SharedCache) -> Value;
-    fn value(&self, context: &mut TraversalContext) -> Value;
+    fn value(&self, context: &mut TraversalContext, cache: &mut SharedCache) -> Value;
     fn identity(&self, context: &mut TraversalContext) -> Value;
 
     fn enter_foreign(&self, context: &mut TraversalContext, cache: &mut SharedCache);
@@ -133,7 +133,6 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
 
                     let result = iterate(elems, |v| {
                         let left = self.traverse(&mut context.clone_value(Some(v.clone())), cache, lhs);
-                        let right = self.traverse(&mut context.clone_value(Some(v.clone())), cache, rhs);
 
                         let Some(op) = op else {
                             return match left {
@@ -141,6 +140,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                                 _ => None
                             };
                         };
+                        let right = self.traverse(&mut context.clone_value(Some(v.clone())), cache, rhs);
 
                         let selected = match op {
                             Compare::Equals => left == right,
@@ -178,8 +178,9 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                     Some(self.to_iterable(context, cache))
                 }
                 Term::Calculate(lhs, op, rhs) => {
-                    let lhs_result = self.traverse(&mut context.clone(), cache, lhs);
-                    let rhs_result = self.traverse(&mut context.clone(), cache, rhs);
+                    let ident = context.identity.take();
+                    let lhs_result = self.traverse(&mut context.clone_value(ident.clone()), cache, lhs);
+                    let rhs_result = self.traverse(&mut context.clone_value(ident), cache, rhs);
                     let result = match op {
                         Operation::Addition => lhs_result + rhs_result,
                         Operation::Subtraction => lhs_result - rhs_result,
@@ -245,8 +246,9 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                     }
                 }
                 Term::KeyValue(key, value_terms) => {
-                    let key = self.traverse(&mut context.clone(), cache, &[*key.clone()]);
-                    let result = self.traverse(&mut context.clone(), cache, &value_terms.to_vec());
+                    let ident = context.identity.take();
+                    let key = self.traverse(&mut context.clone_value(ident.clone()), cache, std::slice::from_ref(&**key));
+                    let result = self.traverse(&mut context.clone_value(ident), cache, value_terms);
                     trace!("Term::kv result: {:?} {:?}", key, result);
                     match key {
                         Value::Empty | Value::List(_) | Value::Iterator(_) => None,
@@ -279,7 +281,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                     }
                 }
                 Term::ArrayConstruction(arr_terms) => {
-                    let result = self.traverse(context, cache, &arr_terms.to_vec());
+                    let result = self.traverse(context, cache, arr_terms);
                     match result {
                         Value::Empty => Some(Value::List(Vec::with_capacity(0))),
                         Value::Iterator(values) => Some(Value::List(values)),
@@ -375,7 +377,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
         trace!("entered {}", name);
 
         let spec: Option<&FileSpec> = self.store.and_then(|s| s.spec_by_export(name))
-            .or_else(|| self.store.and_then(|s| s.spec_by_export(context.current_file.as_ref().unwrap_or(&"".to_string()))));
+            .or_else(|| self.store.and_then(|s| s.spec_by_export(context.current_file.as_deref().unwrap_or(""))));
 
         self.enter_foreign(context, cache);
         if let (Some(spec), None) = (spec, &context.current_file) {
@@ -403,7 +405,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
             context.identity = Some(Value::List(values));
         } else {
             context.current_field = Some(name.to_string());
-            context.identity = Some(self.value(context));
+            context.identity = Some(self.value(context, cache));
         }
     }
 
@@ -488,19 +490,21 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
         }
     }
 
-    fn value(&self, context: &mut TraversalContext) -> Value {
+    fn value(&self, context: &mut TraversalContext, cache: &mut SharedCache) -> Value {
         if context.identity.is_none() {
             return Value::Empty;
         }
+        let wanted = context.current_field.clone();
 
         match context.identity.take().unwrap() {
             Value::Object(entries) => {
+                let wanted = wanted.as_deref().unwrap();
                 match *entries {
                     Value::List(list) | Value::Iterator(list) => {
                         let mut values = Vec::new();
                         for field in list {
                             if let Value::KeyValue(key, value) = field {
-                                if *key == Value::Str(context.current_field.clone().unwrap()) {
+                                if matches!(key.as_ref(), Value::Str(k) if k.as_str() == wanted) {
                                     values.push(*value);
                                 }
                             }
@@ -509,7 +513,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                         values.into_iter().next().unwrap_or(Value::Empty)
                     }
                     Value::KeyValue(key, value) => {
-                        if *key == Value::Str(context.current_field.clone().unwrap()) {
+                        if matches!(key.as_ref(), Value::Str(k) if k.as_str() == wanted) {
                             *value
                         } else {
                             Value::Empty
@@ -522,11 +526,12 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                 }
             }
             Value::Iterator(values) => {
+                let wanted = wanted.as_deref().unwrap();
                 let mut result = Vec::new();
                 for value in values {
                     let item = match value {
                         Value::KeyValue(k, v) => {
-                            if Value::Str(context.current_field.clone().unwrap()) == *k {
+                            if matches!(k.as_ref(), Value::Str(k) if k.as_str() == wanted) {
                                 *v
                             } else {
                                 Value::Empty
@@ -545,7 +550,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                             for kv in obj {
                                 match kv {
                                     Value::KeyValue(k, v) => {
-                                        if Value::Str(context.current_field.clone().unwrap()) == *k {
+                                        if matches!(k.as_ref(), Value::Str(k) if k.as_str() == wanted) {
                                             first = *v;
                                             break;
                                         }
@@ -571,13 +576,14 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
             Value::U64(i) => {
                 let current = context.current_file.as_ref().unwrap();
                 let spec = self.store.unwrap().spec(current).unwrap();
-                let file = self.store.unwrap().file_by_filename(current).unwrap();
+                let file = cache.files.entry(current.clone())
+                    .or_insert_with(|| self.store.unwrap().file_by_filename(current).unwrap());
 
                 // TODO: extract to function
                 let kv_list: Vec<Value> = spec
                     .file_fields
                     .iter()
-                    .map(move |field| {
+                    .map(|field| {
                         Value::KeyValue(
                             Box::new(Value::Str(field.field_name.clone())),
                             Box::new(file.read_field(i, field)),
@@ -602,8 +608,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
         let current_field = current_spec
             .and_then(|spec| {
                 spec.file_fields.iter().find(|&field| {
-                    context.current_field.is_some()
-                        && context.current_field.clone().unwrap() == field.field_name
+                    context.current_field.as_deref() == Some(field.field_name.as_str())
                 })
             });
 
