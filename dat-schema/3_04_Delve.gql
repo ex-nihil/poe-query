@@ -28,11 +28,6 @@ type DelveCatchupDepths {
   Depth: i32
 }
 
-type DelveCraftingModifierDescriptions {
-  Id: string @unique
-  Description: string
-}
-
 type DelveCraftingModifiers @tags(list: ["crafting"]) {
   BaseItemTypesKey: BaseItemTypes
   AddedModsKeys: [Mods]
@@ -56,6 +51,12 @@ type DelveCraftingModifiers @tags(list: ["crafting"]) {
   _: [i32]
   _: [i32]
   _: bool
+  _: bool
+}
+
+type DelveCraftingModifierDescriptions {
+  Id: string @unique
+  Description: string
 }
 
 type DelveCraftingTags {
@@ -93,13 +94,15 @@ type DelveFeatures {
   _: [i32]
   _: [i32]
   _: [i32]
-  _: [_]
+  _: [i32]
+  _: [_] # All rows empty
+  _: [_] # All rows empty
 }
 
 type DelveFlares {
-  _: i32
-  _: rid
-  _: rid
+  Id: i32
+  Projectile: Projectiles
+  Object: MiscObjects
   _: i32
   _: rid
   _: i32
@@ -127,7 +130,7 @@ type DelveLevelScaling {
 type DelveMonsterSpawners {
   BaseMetadata: string
   _: i32
-  _: [rid]
+  Monster: [MonsterVarieties]
   _: i32
   _: i32
   _: i32

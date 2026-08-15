@@ -154,6 +154,16 @@ impl FileSpec {
                             }
                             node => unimplemented!("Unhandled node: {:?}", node),
                         };
+                        // apollo-parser attaches comment trivia to the type node,
+                        // so drop "# ..." parts and keep only the type token itself
+                        let type_name = type_name
+                            .lines()
+                            .filter_map(|line| {
+                                let token = line.split('#').next().unwrap().trim();
+                                (!token.is_empty()).then(|| token.to_string())
+                            })
+                            .next()
+                            .unwrap_or(type_name.clone());
 
                         let enum_spec = enum_specs.get(type_name.as_str());
 
@@ -163,7 +173,7 @@ impl FileSpec {
                         };
 
                         let key_file = match type_name.as_str() {
-                            "i32" | "bool" | "string" | "f32" | "u32" | "path" | "_" => None,
+                            "i32" | "bool" | "string" | "f32" | "u32" | "path" | "_" | "u16" | "i16" | "u8" => None,
                             _ if enum_spec.is_some() => None,
                             fk => Some(fk.to_string())
                         };
@@ -182,6 +192,7 @@ impl FileSpec {
 
                         let mut field_size: usize = match type_name.as_str() {
                             "bool" | "u8" => 1,
+                            "u16" | "i16" => 2,
                             "u32" | "i32" | "f32" => 4,
                             "i64" | "u64" | "string" | "path" => 8,
                             _ if reference_key.is_some() && key_file.is_some() => {
@@ -252,8 +263,10 @@ impl FileSpec {
     pub fn field_size(field: &FieldSpec) -> usize {
         let datatype = field.field_type.split('|').next().unwrap();
         match datatype {
-            "u64" | "i64" | "list" => 8,
+            "list" => 16,
+            "u64" | "i64" => 8,
             "bool" | "u8" => 1,
+            "u16" | "i16" => 2,
             _ => 4,
         }
     }

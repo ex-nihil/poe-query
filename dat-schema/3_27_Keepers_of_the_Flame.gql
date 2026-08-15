@@ -4,26 +4,113 @@ type BreachBossLifeScalingPerLevel {
 }
 
 type BreachElement {
-  Element: string
-  _: rid
+  Element: string @unique
+  ShardBaseItemType: BaseItemTypes
   BaseBreachstone: BaseItemTypes
   BossMapMod: Stats
   DuplicateBoss: Stats
 }
 
-type BrequelPassiveSubTrees {
-  Id: string  @unique
-  _: ClientStrings
-  _: ClientStrings
-  _: BaseItemTypes
+type BrequelEncounterSkills {
+  Id: string @unique
+  _: rid
+  Description: string
+  Art: string
+  _: i32
+  _: i32
+  _: i32
+  _: i32
+  _: i32
+}
+
+type BrequelFruitQuests {
+  Id: i32 @unique
+  _: i32
+  _: i32
+  TreeGraftbloodRequired: i32
+  _: i32
+  _: i32
+}
+
+type BrequelFruitRewardTypes {
+  Id: string @unique
+  Name: string
+  Description: string
+  _: string
+  _: string
+  _: [_] # All rows empty
+  _: [_] # All rows empty
+  AchievementItem: AchievementItems
+  AchievementItemHardmode: AchievementItems
+}
+
+type BrequelFruitTypes {
+  BaseItemType: BaseItemTypes @unique
+  Reward: BrequelFruitRewardTypes
+  _: i32
+  _: i32
+  _: rid
+  _: rid
+  _: i32
+}
+
+type BrequelGrafts {
+  Id: string @unique
+  Arm: string
+  SkillGem: SkillGems
+  _: i32
+  SkillAnimation: string
+}
+
+type BrequelGraftGrantedSkillLevels {
+  AreaLevel: i32
+  SkillLevel: i32
+  RequiredLevel: i32
+}
+
+type BrequelGraftInventoryLayout {
+  Inventory: Inventories
+  QuestFlag: QuestFlags
+  _: i32
+}
+
+type BrequelGraftSkillStats {
+  GraftStat: Stats @unique
+  PlayerStat: Stats
 }
 
 type BrequelGraftTypes {
   BaseItemType: BaseItemTypes @unique
-  LeftArm: string
-  RightArm: string
-  SkillGem: SkillGems
+  AOFileLeftArm: string @file(ext: ".ao")
+  AOFileRightArm: string @file(ext: ".ao")
+  NPC: NPCs
   _: i32
-  SkillAnimation: string
+  AISFile: string @file(ext: ".ais")
   Achievement: AchievementItems
+}
+
+type BrequelItemResourceValues {
+  FleshgraftLevel: i32
+  GraftbloodStorage: i32
+}
+
+type BrequelLockerLayout {
+  Id: string @unique
+  _: i32
+  _: i32
+  _: i32
+  ItemClass: ItemClasses
+  Name: string
+}
+
+type BrequelPassiveSubTrees {
+  Id: string @unique
+  RewardStringSingle: ClientStrings
+  RewardStringMultiple: ClientStrings
+  Wombgift: BaseItemTypes
+}
+
+type BrequelTreeSlots {
+  PassiveSkill: PassiveSkills @unique
+  BrequelSubTree: BrequelPassiveSubTrees
 }

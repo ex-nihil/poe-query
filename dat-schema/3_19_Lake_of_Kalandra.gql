@@ -7,7 +7,7 @@ type ClientLakeDifficulty {
 
 type LakeBossLifeScalingPerLevel {
   Level: i32
-  Scaling: i32
+  MoreLife: i32
 }
 
 type LakeMetaOptions {
@@ -18,16 +18,6 @@ type LakeMetaOptions {
 type LakeMetaOptionsUnlockText {
   Id: i32
   Text: string @localized
-}
-
-type LakeRoomCompletion {
-  Room: LakeRooms
-  _: i32
-  _: i32
-  Achievements: [AchievementItems]
-  _: [i32]
-  _: [_] # All rows empty
-  _: i32
 }
 
 type LakeRooms @tags(list: ["item:itemized"]) {
@@ -44,25 +34,35 @@ type LakeRooms @tags(list: ["item:itemized"]) {
   Icon: string
   _: i32
   MinLevel: i32
-  _: rid
+  StampFamily: StampFamily
   _: bool
   ExtraStats: [Stats]
   ExtraStatsValues: [i32]
   ReminderText: string @localized
-  TextAudio: NPCTextAudio
-  _: rid
+  TextAudioIntro: NPCTextAudio
+  TextAudioOutro: NPCTextAudio
   _: bool
+}
+
+type LakeRoomCompletion {
+  Room: LakeRooms
+  _: i32
+  _: i32
+  Achievements: [AchievementItems]
+  _: [i32]
+  _: [_] # All rows empty
+  _: i32
 }
 
 type StampChoice {
   Id: string @unique
-  _: rid
+  Room: LakeRooms
   _: i32
   Effect: string
   Icon: string
-  _: rid
-  _: [_]
-  _: i32
+  StampFamily: StampFamily
+  Achievements: [AchievementItems]
+  HASH16: u32
 }
 
 type StampFamily {

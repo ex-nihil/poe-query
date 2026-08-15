@@ -1,0 +1,119 @@
+type DeepwaterBalancePerLevel {
+  _: rid
+  _: i32
+}
+
+type DeepwaterBiomes {
+  Id: string
+  WorldArea: WorldAreas
+}
+
+type DeepwaterCharts {
+  BaseItemType: BaseItemTypes
+  Biome: DeepwaterBiomes
+}
+
+type DeepwaterConnectionStrings {
+  Id: i32
+  _: [ClientStrings]
+}
+
+type DeepwaterConstants {
+  Id: string
+  Value: i32
+}
+
+type DeepwaterCraftingClasses {
+  ItemClass: ItemClasses
+  _: i32
+  _: bool
+}
+
+type DeepwaterCraftingCurrencies {
+  Currency: CurrencyItems
+  _: i32
+  _: i32
+  _: i32
+  Cost: i32
+  _: i32
+  _: [_]
+  _: [_]
+  NPCAudio: NPCTextAudio
+  _: i32
+  _: string
+  _: bool
+  _: i32
+  _: i32
+  _: i32
+  _: bool
+}
+
+type DeepwaterCraftingDialogueByClass {
+  ItemClass: ItemClasses
+  NPCDialogue: [NPCTextAudio]
+  DialogueWeighting: [i32]
+  _: i32
+}
+
+type DeepwaterLifeScalingPerLevel {
+  Level: i32
+  Life: i32
+}
+
+type DeepwaterLockerLayout {
+  Id: string
+  BaseItemType: BaseItemTypes
+  _: bool
+  _: string
+  _: i32
+  _: i32
+  _: i32
+  _: i32
+  _: i32
+  _: i32
+  _: i32
+  _: rid
+  _: i32
+  _: string
+}
+
+type DeepwaterLootBottles {
+  Id: string
+  _: i32
+  _: rid # All rows empty
+  Description: ClientStrings2
+  _: bool
+}
+
+type DeepwaterLootBottleUniqueMessages {
+  Unique: Words
+  Message: ClientStrings2
+}
+
+type DeepwaterRooms {
+  Id: string
+  ArmFiles: string @file(ext: ".arm")
+  _: i32
+  Name: string
+  _: i32
+  _: i32
+  _: i32
+  Biome: DeepwaterBiomes
+  _: i32
+  _: rid # All rows empty
+  _: i32
+  _: i32
+  Stats: [Stats]
+  StatValues: [i32]
+  _: DeepwaterRooms
+  Special: bool
+  AchievementItems: [AchievementItems]
+  _: bool
+}
+
+type DeepwaterUpgrades {
+  Id: string
+  QuestState: i32
+  Stats: [Stats]
+  StatsValues: [i32]
+}

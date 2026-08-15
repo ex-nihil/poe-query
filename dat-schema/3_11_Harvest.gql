@@ -1,26 +1,27 @@
 enum HarvestColours @indexing(first: 0) { _ }
 
-type HarvestCraftOptionIcons {
-  Id: string @unique
-  DDSFile: string @file(ext: ".dds")
-}
-
 type HarvestCraftOptions @tags(list: ["crafting"]) {
   Id: string @unique
   Text: string
   Tier: HarvestCraftTiers
   Command: string
   Parameters: string
-  _: [_]
-  HASH16: i16
+  MirageAchievements: [AchievementItems]
+  HASH16: u16
   Description: string
   IsEnchant: bool
   LifeforceType: i32
   LifeforceCost: i32
   SacredCost: i32
-  _: bool
-  Achievements: [AchievementItems]
-  _: i32
+  IsProportionalToStackSize: bool
+  NecropolisAchievements: [AchievementItems]
+  GameMode: GameModes
+  RancourCost: i32
+}
+
+type HarvestCraftOptionIcons {
+  Id: string @unique
+  DDSFile: string @file(ext: ".dds")
 }
 
 type HarvestCraftTiers {
@@ -41,6 +42,11 @@ type HarvestInfrastructure {
   ClientStringsKey: ClientStrings
 }
 
+type HarvestLifeScalingPerLevel {
+  Level: i32
+  MoreLife: i32
+}
+
 type HarvestPerLevelValues {
   Level: i32
   _: i32
@@ -56,11 +62,6 @@ type HarvestPerLevelValues {
   _: i32
 }
 
-type HarvestLifeScalingPerLevel {
-  Level: i32
-  Life: i32
-}
-
 type HarvestSeeds {
   Id: string
   Monster: MonsterVarieties
@@ -72,6 +73,7 @@ type HarvestSeeds {
   _: i32
   HatchAnimation: string @file(ext: ".ao")
   SeedType: i32
+  _: bool
 }
 
 type HarvestSeedItems @tags(list: ["item:def"]) {

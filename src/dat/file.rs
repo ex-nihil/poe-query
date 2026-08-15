@@ -155,6 +155,8 @@ trait ReadBytesToValue {
     fn read_value(&mut self, tag: &str) -> Value;
     fn bool(&mut self) -> Value;
     fn u8(&mut self) -> Value;
+    fn u16(&mut self) -> Value;
+    fn i16(&mut self) -> Value;
     fn u32(&mut self) -> Value;
     fn i32(&mut self) -> Value;
     fn f32(&mut self) -> Value;
@@ -169,6 +171,8 @@ impl ReadBytesToValue for Cursor<&[u8]> {
         match tag {
             "bool" => self.bool(),
             "u8"   => self.u8(),
+            "u16"  => self.u16(),
+            "i16"  => self.i16(),
             "u32"  => self.u32(),
             "i32"  => self.i32(),
             "f32"  => self.f32(),
@@ -199,6 +203,20 @@ impl ReadBytesToValue for Cursor<&[u8]> {
         match self.read_u8() {
             Ok(value) => Value::Byte(value),
             Err(_)=> panic!("Unable to read u8"),
+        }
+    }
+
+    fn u16(&mut self) -> Value {
+        match self.read_u16::<LittleEndian>() {
+            Ok(value) => Value::U64(value as u64),
+            Err(_) => panic!("Unable to read u16"),
+        }
+    }
+
+    fn i16(&mut self) -> Value {
+        match self.read_i16::<LittleEndian>() {
+            Ok(value) => Value::I64(value as i64),
+            Err(_) => panic!("Unable to read i16"),
         }
     }
 

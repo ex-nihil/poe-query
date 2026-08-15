@@ -17,21 +17,6 @@ type IncursionBrackets {
   _: i32
 }
 
-type IncursionChestRewards @tags(list: ["item:droptable"]) {
-  IncursionRoomsKey: IncursionRooms
-  IncursionChestsKeys: [IncursionChests]
-  ChestMarkerMetadata: string @files(ext: [".ot", ".otc"])
-  _: i32
-  _: i32
-  _: i32
-  _: i32
-  _: i32
-  _: i32
-  _: i32
-  _: i32
-  _: i32
-}
-
 type IncursionChests {
   Id: string @unique
   ChestsKey: Chests
@@ -42,14 +27,16 @@ type IncursionChests {
   _: i32
 }
 
-type IncursionRoomBossFightEvents {
-  Room: IncursionRooms
-  _: string
-  _: string
-  _: string
-  _: string
-  _: string
-  _: rid
+type IncursionChestRewards @tags(list: ["item:droptable"]) {
+  IncursionRoomsKey: IncursionRooms
+  IncursionChestsKeys: [IncursionChests]
+  ChestMarkerMetadata: string @files(ext: [".ot", ".otc"])
+  HASH32: u32
+  RuthlessIncursionChestsKeys: [IncursionChests]
+  _: i32
+  _: i32
+  _: i32
+  _: i32
 }
 
 type IncursionRooms @tags(list: ["item:itemized"]) {
@@ -60,7 +47,7 @@ type IncursionRooms @tags(list: ["item:itemized"]) {
   RoomUpgrade_IncursionRoomsKey: IncursionRooms
   Mods: [Mods]
   PresentARMFile: string @file(ext: ".arm")
-  HASH16: i32 @unique
+  HASH16: u32
   IncursionArchitectKey: IncursionArchitect
   PastARMFile: string @file(ext: ".arm")
   TSIFile: string @file(ext: ".tsi")
@@ -74,6 +61,16 @@ type IncursionRooms @tags(list: ["item:itemized"]) {
   ItemisedFlavourText: FlavourText
   _: string
   _: [Mods]
+}
+
+type IncursionRoomBossFightEvents {
+  Room: IncursionRooms
+  _: string
+  _: string
+  _: string
+  _: string
+  _: string
+  TurretMonster: MonsterVarieties
 }
 
 type IncursionUniqueUpgradeComponents @tags(list: ["item:recipe", "item:unique"]) {

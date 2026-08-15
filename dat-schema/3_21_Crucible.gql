@@ -21,15 +21,15 @@ type WeaponPassiveSkills {
   Id: string
   Tier: i32
   Mod: Mods
-  _: [_]
-  _: [_]
+  NodeSpawnLocation: [i32]
+  Tags: [CrucibleTags]
   Icon: string
   Type: WeaponPassiveSkillTypes
   Achievements: [AchievementItems]
 }
 
 type CrucibleDifficulty {
-  Number: string @unique
+  Number: string
   Name: string @unique
   _: i32
   _: i32
@@ -39,7 +39,7 @@ type CrucibleDifficulty {
 
 type CrucibleEndgameMonsterPacks {
   Tier: string @unique
-  _: [_]
+  _: [i32]
   _: i32
   _: i32
   _: bool
@@ -47,11 +47,11 @@ type CrucibleEndgameMonsterPacks {
 
 type CrucibleLifeScalingPerLevel {
   Level: i32
-  Life: i32
+  MoreLife: i32
 }
 
 type CruciblePlayerClassOffsets {
-  _: rid @unique
+  Character: Characters @unique
   _: i32
   _: i32
 }

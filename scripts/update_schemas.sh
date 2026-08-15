@@ -7,5 +7,5 @@ cd "$(dirname "$0")" || return
 cd ..
 
 curl -Ls https://github.com/poe-tool-dev/dat-schema/archive/refs/heads/main.zip --output dat_schema.zip
-unzip -jo dat_schema.zip dat-schema-main/dat-schema/* -d dat-schema
+unzip -jo dat_schema.zip 'dat-schema-main/dat-schema/*' -x 'dat-schema-main/dat-schema/poe2/*' -d dat-schema
 rm dat_schema.zip

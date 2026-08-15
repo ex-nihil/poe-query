@@ -2,6 +2,8 @@ type ItemisedNecropolisPacks {
   Item: BaseItemTypes @unique
   Pack: NecropolisPacks
   Description: string
+  _: i32
+  _: i32
 }
 
 type NecropolisCraftBases {
@@ -43,24 +45,24 @@ type NecropolisCraftItemTypes {
   TextAudioLong: NPCTextAudio
   Achievements: AchievementItems
   TextAudioShort: NPCTextAudio
-  _: rid
+  ItemClass: ItemClasses
 }
 
 type NecropolisPackAdditionalPacks {
-  _: rid
-  _: rid
-}
-
-type NecropolisPackImplicitClass {
-  Id: string
-  MoreImplicit: NecropolisPackImplicits
-  LessImplicit: NecropolisPackImplicits
+  Id: NecropolisPacks
+  MonsterPack: MonsterPacks
 }
 
 type NecropolisPackImplicits {
   Id: string
   Text: string
   Icon: string
+}
+
+type NecropolisPackImplicitClass {
+  Id: string
+  MoreImplicit: NecropolisPackImplicits
+  LessImplicit: NecropolisPackImplicits
 }
 
 type NecropolisPackMods {
@@ -89,7 +91,7 @@ type NecropolisPacks {
 }
 
 type NecropolisPacksPerArea {
-  _: rid
+  Id: NecropolisPacks
   _: [rid]
   _: [i32]
 }

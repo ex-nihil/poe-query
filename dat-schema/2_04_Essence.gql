@@ -1,16 +1,16 @@
 type Essences @tags(list: ["item:def", "crafting"]) {
   BaseItemTypesKey: BaseItemTypes @unique
-  _: rid
-  _: rid
-  _: rid
-  _: rid
-  _: rid
-  _: rid
-  _: rid
-  _: rid
-  _: rid
-  _: rid
-  _: rid
+  _: rid # All rows empty
+  _: rid # All rows empty
+  _: rid # All rows empty
+  _: rid # All rows empty
+  _: rid # All rows empty
+  _: rid # All rows empty
+  _: rid # All rows empty
+  _: rid # All rows empty
+  _: rid # All rows empty
+  _: rid # All rows empty
+  _: rid # All rows empty
   Display_Wand_ModsKey: Mods
   Display_Bow_ModsKey: Mods
   Display_Quiver_ModsKey: Mods
@@ -22,7 +22,7 @@ type Essences @tags(list: ["item:def", "crafting"]) {
   Display_BodyArmour_ModsKey: Mods
   Display_Helmet_ModsKey: Mods
   Display_Shield_ModsKey: Mods
-  HASH32: i32
+  HASH32: u32
   DropLevel: [i32]
   Monster_ModsKeys: [Mods]
   EssenceTypeKey: EssenceType
@@ -71,5 +71,5 @@ type EssenceType {
   EssenceType: i32
   IsCorruptedEssence: bool
   WordsKey: Words
-  _: rid
+  ChanceForAdditionalEssenceStat: Stats
 }
