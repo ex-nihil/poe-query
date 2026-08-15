@@ -16,8 +16,11 @@ fn conditionals() {
     assert_eq!(result, vec![r#""many""#]);
 }
 
+// implemented: array construction while iterating is covered by
+// tests/jq_semantics.rs (array_construction_builds_one_array_per_element);
+// quoted field access `."a"` remains unimplemented
 //#[test]
-fn iterate_to_array_construction() {
+fn quoted_field_access() {
     let result = process(r#"[{"a": 1}, {"a": 2}][] | [."a"]"#);
-    assert_eq!(result, vec![r#""[1][2]""#]);
+    assert_eq!(result, vec!["[1]", "[2]"]);
 }

@@ -57,15 +57,18 @@ bool_expression = _{ query+ ~ compare ~ query+ }
         less_than_eq = { "<=" }
         greater_than_eq = { ">=" }
 
-field = { identifier }
-kv_by_field = { identifier }
+field = @{ identifier }
+kv_by_field = @{ identifier }
 
 construct = _{ array_construction | object_construct }
 array_construction = { "[" ~ query* ~ "]" }
 
 // OBJECT CONSTRUCTION
 object_construct = { "{" ~ ((key_value | kv_by_field) ~ comma?)* ~ "}" }
-key_value = { key ~ (!("," ~ &key) ~ query)+ }
+// a key/value's value runs until a comma that starts the next entry:
+// either another `key:` or a bare shorthand field followed by , or }
+kv_shorthand_next = _{ identifier ~ &("," | "}") }
+key_value = { key ~ (!("," ~ &(key | kv_shorthand_next)) ~ query)+ }
 key = {  (quoted_string | identifier | "(" ~ (datatypes | filter)+ ~ ")")+ ~ ":" }
 
 optional = { "?" }

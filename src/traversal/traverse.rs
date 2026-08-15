@@ -89,6 +89,91 @@ impl<'a> StaticContext<'a> {
         Ok(Value::Object(Box::new(Value::List(kv_list))))
     }
 
+    /// jq's `.[]` on a single value: iterate an array's items or an
+    /// object's/row's field values.
+    fn iterate_value(&self, cache: &mut SharedCache, value: Value) -> Result<Value, QueryError> {
+        match value {
+            Value::List(list) => Ok(Value::Iterator(list)),
+            Value::Iterator(list) => Ok(Value::Iterator(list)),
+            Value::Row(file_name, row) => {
+                match self.materialize_row(cache, &file_name, row)? {
+                    Value::Object(content) => match *content {
+                        Value::List(fields) | Value::Iterator(fields) => Ok(Value::Iterator(fields)),
+                        _ => Ok(Value::Iterator(Vec::with_capacity(0))),
+                    },
+                    _ => Ok(Value::Iterator(Vec::with_capacity(0))),
+                }
+            }
+            Value::Object(content) => {
+                let fields = match *content {
+                    Value::List(fields) | Value::Iterator(fields) => fields,
+                    unexpected => {
+                        return Err(QueryError::type_error("iteration", unexpected));
+                    }
+                };
+                Ok(Value::Iterator(fields))
+            }
+            Value::Empty => Ok(Value::Iterator(Vec::with_capacity(0))),
+            unexpected => Err(QueryError::type_error("iteration", unexpected)),
+        }
+    }
+
+    fn length_value(&self, value: Value) -> Result<Value, QueryError> {
+        match value {
+            Value::Str(string) => Ok(Value::U64(string.chars().count() as u64)),
+            Value::List(list) => Ok(Value::U64(list.len() as u64)),
+            Value::Row(file, _) => {
+                let fields = self.store
+                    .and_then(|s| s.spec(&file))
+                    .map(|spec| spec.file_fields.len())
+                    .unwrap_or(0);
+                Ok(Value::U64(fields as u64))
+            }
+            Value::Object(data) => {
+                match *data {
+                    Value::List(pairs) | Value::Iterator(pairs) => Ok(Value::U64(pairs.len() as u64)),
+                    _ => Ok(Value::U64(0)),
+                }
+            }
+            Value::Empty => Ok(Value::U64(0)),
+            value => Err(QueryError::type_error("length", value)),
+        }
+    }
+
+    fn keys_value(&self, value: Value) -> Result<Value, QueryError> {
+        match value {
+            Value::Row(file, _) => {
+                let keys = self.store
+                    .and_then(|s| s.spec(&file))
+                    .map(|spec| {
+                        spec.file_fields.iter()
+                            .map(|field| Value::Str(field.field_name.clone()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                Ok(Value::List(keys))
+            }
+            Value::Object(data) => {
+                match *data {
+                    Value::List(pairs) | Value::Iterator(pairs) => {
+                        let keys = pairs.iter().filter_map(|kv| match kv {
+                            Value::KeyValue(key, _) => {
+                                match *key.clone() {
+                                    Value::Str(key) => Some(Value::Str(key)),
+                                    _ => None,
+                                }
+                            }
+                            _ => None,
+                        }).collect();
+                        Ok(Value::List(keys))
+                    }
+                    _ => Ok(Value::Empty),
+                }
+            }
+            value => Err(QueryError::type_error("keys", value)),
+        }
+    }
+
     /// Read a single column of a single row, loading the file on first use.
     fn read_row_field(&self, cache: &mut SharedCache, file_name: &str, row: u64, field_name: &str) -> Result<Value, QueryError> {
         let Some(store) = self.store else { return Ok(Value::Empty) };
@@ -165,7 +250,11 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
         } else if parsed_terms.contains(&Term::CommaSeparator) {
             let mut values = Vec::new();
             for terms in parsed_terms.split(|term| matches!(term, Term::CommaSeparator)) {
-                values.push(self.traverse(&mut context.clone(), cache, terms)?);
+                match self.traverse(&mut context.clone(), cache, terms)? {
+                    // jq: comma concatenates the streams of both sides
+                    Value::Iterator(items) => values.extend(items),
+                    value => values.push(value),
+                }
             }
             values
         } else {
@@ -278,7 +367,22 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                     Some(Value::Bool(false))
                 }
                 Term::Iterator => {
-                    Some(self.to_iterable(context, cache)?)
+                    self.enter_foreign(context, cache)?;
+                    match context.identity() {
+                        // jq: [] on a stream iterates each element, splicing
+                        // the results into one stream
+                        Value::Iterator(items) => {
+                            let mut flattened = Vec::new();
+                            for item in items {
+                                match self.iterate_value(cache, item)? {
+                                    Value::Iterator(inner) => flattened.extend(inner),
+                                    other => flattened.push(other),
+                                }
+                            }
+                            Some(Value::Iterator(flattened))
+                        }
+                        other => Some(self.iterate_value(cache, other)?),
+                    }
                 }
                 Term::Calculate(lhs, op, rhs) => {
                     let ident = context.identity.take();
@@ -345,10 +449,16 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                 }
                 Term::ObjectConstruction(obj_terms) => {
                     if let Some(value) = context.identity.take() {
-                        Some(iterate(value, |v| {
+                        let was_stream = matches!(value, Value::Iterator(_));
+                        let result = iterate(value, |v| {
                             let output = self.traverse(&mut context.clone_value(Some(v)), cache, obj_terms)?;
                             Ok(Some(Value::Object(Box::new(output))))
-                        })?)
+                        })?;
+                        // jq: one object per stream element stays a stream
+                        Some(match result {
+                            Value::List(items) if was_stream => Value::Iterator(items),
+                            other => other,
+                        })
                     } else {
                         let output = self.traverse(context, cache, obj_terms)?;
                         Some(Value::Object(Box::new(output)))
@@ -386,64 +496,45 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                     }
                 }
                 Term::ArrayConstruction(arr_terms) => {
-                    let result = self.traverse(context, cache, arr_terms)?;
-                    match result {
-                        Value::Empty => Some(Value::List(Vec::with_capacity(0))),
-                        Value::Iterator(values) => Some(Value::List(values)),
-                        Value::List(_) => Some(result),
-                        one_element => Some(Value::List(vec![one_element])),
+                    fn collect_array(result: Value) -> Value {
+                        match result {
+                            Value::Empty => Value::List(Vec::with_capacity(0)),
+                            Value::Iterator(values) => Value::List(values),
+                            list @ Value::List(_) => list,
+                            one_element => Value::List(vec![one_element]),
+                        }
+                    }
+                    match context.identity.take() {
+                        // jq: [expr] builds one array per stream element
+                        Some(Value::Iterator(items)) => {
+                            let mut results = Vec::with_capacity(items.len());
+                            for item in items {
+                                let result = self.traverse(&mut context.clone_value(Some(item)), cache, arr_terms)?;
+                                results.push(collect_array(result));
+                            }
+                            Some(Value::Iterator(results))
+                        }
+                        identity => {
+                            context.identity = identity;
+                            let result = self.traverse(context, cache, arr_terms)?;
+                            Some(collect_array(result))
+                        }
                     }
                 }
                 Term::Length => match context.identity() {
-                    Value::Str(string) => Some(Value::U64(string.chars().count() as u64)),
-                    Value::List(list) => Some(Value::U64(list.len() as u64)),
-                    Value::Iterator(iterable) => Some(Value::U64(iterable.len() as u64)),
-                    Value::Row(file, _) => {
-                        let fields = self.store
-                            .and_then(|s| s.spec(&file))
-                            .map(|spec| spec.file_fields.len())
-                            .unwrap_or(0);
-                        Some(Value::U64(fields as u64))
-                    }
-                    Value::Object(data) => {
-                        match *data {
-                            Value::List(pairs) | Value::Iterator(pairs) => Some(Value::U64(pairs.len() as u64)),
-                            _ => Some(Value::U64(0))
-                        }
-                    }
-                    Value::Empty => Some(Value::U64(0)),
-                    value => return Err(QueryError::type_error("length", value))
+                    // jq: length distributes over a stream
+                    Value::Iterator(items) => Some(Value::Iterator(
+                        items.into_iter()
+                            .map(|item| self.length_value(item))
+                            .collect::<Result<Vec<_>, _>>()?)),
+                    value => Some(self.length_value(value)?),
                 },
                 Term::Keys => match context.identity() {
-                    Value::Row(file, _) => {
-                        let keys = self.store
-                            .and_then(|s| s.spec(&file))
-                            .map(|spec| {
-                                spec.file_fields.iter()
-                                    .map(|field| Value::Str(field.field_name.clone()))
-                                    .collect()
-                            })
-                            .unwrap_or_default();
-                        Some(Value::List(keys))
-                    }
-                    Value::Object(data) => {
-                        match *data {
-                            Value::List(pairs) | Value::Iterator(pairs) => {
-                                let keys = pairs.iter().filter_map(|kv| match kv {
-                                    Value::KeyValue(key, _) => {
-                                        match *key.clone() {
-                                            Value::Str(key) => Some(Value::Str(key)),
-                                            _ => None,
-                                        }
-                                    }
-                                    _ => None,
-                                }).collect();
-                                Some(Value::List(keys))
-                            }
-                            _ => None
-                        }
-                    }
-                    value => return Err(QueryError::type_error("keys", value))
+                    Value::Iterator(items) => Some(Value::Iterator(
+                        items.into_iter()
+                            .map(|item| self.keys_value(item))
+                            .collect::<Result<Vec<_>, _>>()?)),
+                    value => Some(self.keys_value(value)?),
                 },
                 Term::Key(terms) => {
                     Some(self.traverse(context, cache, terms)?)
@@ -533,58 +624,77 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
     }
 
     fn index(&self, context: &mut TraversalContext, index: usize) {
-        let value = context.identity();
-        context.identity = match value {
-            Value::List(list) => list.into_iter().nth(index),
-            Value::Str(str) => str.chars().nth(index).map(|value| Value::Str(value.to_string())),
-            _ => None,
+        fn index_value(value: Value, index: usize) -> Option<Value> {
+            match value {
+                Value::List(list) => list.into_iter().nth(index),
+                Value::Str(str) => str.chars().nth(index).map(|value| Value::Str(value.to_string())),
+                _ => None,
+            }
+        }
+        context.identity = match context.identity() {
+            // jq: indexing distributes over a stream
+            Value::Iterator(items) => Some(Value::Iterator(
+                items.into_iter().map(|item| index_value(item, index).unwrap_or(Value::Empty)).collect())),
+            value => index_value(value, index),
         };
     }
 
     fn index_reverse(&self, context: &mut TraversalContext, index: usize) {
-        let value = context.identity();
-        context.identity = match value {
-            Value::List(list) => {
-                list.len().checked_sub(index)
-                    .and_then(|index| list.into_iter().nth(index))
+        fn index_value(value: Value, index: usize) -> Option<Value> {
+            match value {
+                Value::List(list) => {
+                    list.len().checked_sub(index)
+                        .and_then(|index| list.into_iter().nth(index))
+                }
+                Value::Str(str) => {
+                    str.chars().count().checked_sub(index)
+                        .and_then(|index| str.chars().nth(index))
+                        .map(|value| Value::Str(value.to_string()))
+                }
+                _ => None,
             }
-            Value::Str(str) => {
-                str.chars().count().checked_sub(index)
-                    .and_then(|index| str.chars().nth(index))
-                    .map(|value| Value::Str(value.to_string()))
-            }
-            _ => None,
+        }
+        context.identity = match context.identity() {
+            Value::Iterator(items) => Some(Value::Iterator(
+                items.into_iter().map(|item| index_value(item, index).unwrap_or(Value::Empty)).collect())),
+            value => index_value(value, index),
         };
     }
 
     fn slice(&self, context: &mut TraversalContext, from: i64, to: i64) -> Result<(), QueryError> {
-        let value = context.identity();
-        context.identity = match value {
-            Value::List(list) => {
-                let size = list.len();
-                let from = if from.is_negative() { size.saturating_sub(from.unsigned_abs() as usize) } else { from as usize };
-                let to = if to.is_negative() { size.saturating_sub(to.unsigned_abs() as usize) } else { to as usize };
-                if from > to {
-                    Some(Value::List(vec![]))
-                } else {
-                    let sliced = list[from..usize::min(to, list.len())].to_vec();
-                    Some(Value::List(sliced))
+        fn slice_value(value: Value, from: i64, to: i64) -> Result<Value, QueryError> {
+            match value {
+                Value::List(list) => {
+                    let size = list.len();
+                    let from = if from.is_negative() { size.saturating_sub(from.unsigned_abs() as usize) } else { from as usize };
+                    let to = if to.is_negative() { size.saturating_sub(to.unsigned_abs() as usize) } else { to as usize };
+                    if from > to {
+                        Ok(Value::List(vec![]))
+                    } else {
+                        Ok(Value::List(list[from..usize::min(to, list.len())].to_vec()))
+                    }
                 }
-            }
-            Value::Str(str) => {
-                let size = str.len();
-                let from = if from.is_negative() { size.saturating_sub(from.unsigned_abs() as usize) } else { from as usize };
-                let to = if to.is_negative() { size.saturating_sub(to.unsigned_abs() as usize) } else { to as usize };
-                if from > to {
-                    Some(Value::List(vec![]))
-                } else {
-                    let to = min(to, str.len());
-                    Some(Value::Str(str[from..to].to_string()))
+                Value::Str(str) => {
+                    let size = str.len();
+                    let from = if from.is_negative() { size.saturating_sub(from.unsigned_abs() as usize) } else { from as usize };
+                    let to = if to.is_negative() { size.saturating_sub(to.unsigned_abs() as usize) } else { to as usize };
+                    if from > to {
+                        Ok(Value::List(vec![]))
+                    } else {
+                        let to = min(to, str.len());
+                        Ok(Value::Str(str[from..to].to_string()))
+                    }
                 }
+                unexpected => Err(QueryError::type_error("slice", unexpected)),
             }
-            unexpected => {
-                return Err(QueryError::type_error("slice", unexpected));
-            }
+        }
+        context.identity = match context.identity() {
+            // jq: slicing distributes over a stream
+            Value::Iterator(items) => Some(Value::Iterator(
+                items.into_iter()
+                    .map(|item| slice_value(item, from, to))
+                    .collect::<Result<Vec<_>, _>>()?)),
+            value => Some(slice_value(value, from, to)?),
         };
         Ok(())
     }
@@ -594,28 +704,9 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
 
         let value = context.identity();
         match value {
-            Value::List(list) => Ok(Value::Iterator(list)),
+            // internal callers (select, map) consume the stream as-is
             Value::Iterator(list) => Ok(Value::Iterator(list)),
-            Value::Row(file_name, row) => {
-                match self.materialize_row(cache, &file_name, row)? {
-                    Value::Object(content) => match *content {
-                        Value::List(fields) | Value::Iterator(fields) => Ok(Value::Iterator(fields)),
-                        _ => Ok(Value::Iterator(Vec::with_capacity(0))),
-                    },
-                    _ => Ok(Value::Iterator(Vec::with_capacity(0))),
-                }
-            }
-            Value::Object(content) => {
-                let fields = match *content {
-                    Value::List(fields) | Value::Iterator(fields) => fields,
-                    unexpected => {
-                        return Err(QueryError::type_error("iteration", unexpected));
-                    }
-                };
-                Ok(Value::Iterator(fields))
-            }
-            Value::Empty => Ok(Value::Iterator(Vec::with_capacity(0))),
-            unexpected => Err(QueryError::type_error("iteration", unexpected)),
+            other => self.iterate_value(cache, other),
         }
     }
 
@@ -682,6 +773,8 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                         Value::Object(elements) => {
                             let obj = match *elements {
                                 Value::List(fields) | Value::Iterator(fields) => fields,
+                                kv @ Value::KeyValue(_, _) => vec![kv],
+                                Value::Empty => vec![],
                                 unexpected => {
                                     return Err(QueryError::internal(format!("type {} unexpected in Value::Object", unexpected)));
                                 }
@@ -704,7 +797,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                             first
                         }
                         unexpected => {
-                            return Err(QueryError::type_error("iteration", unexpected));
+                            return Err(QueryError::type_error(format!("indexing with '{}'", wanted), unexpected));
                         }
                     };
                     result.push(item);
@@ -713,7 +806,8 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                 if let Some(file_name) = row_file {
                     context.current_file = Some(file_name.to_string());
                 }
-                Ok(Value::List(result))
+                // jq semantics: a filter applied to a stream yields a stream
+                Ok(Value::Iterator(result))
             }
             Value::U64(i) => {
                 let current = context.current_file.clone()
@@ -764,6 +858,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                 .ok_or_else(|| QueryError::internal(format!("foreign key target '{}' has no specification", fk_name)))?;
 
             let value = context.identity();
+            let was_stream = matches!(value, Value::Iterator(_));
             let value = match value {
                 Value::List(items) => Value::Iterator(items),
                 _ => value,
@@ -797,6 +892,11 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                 let rows = self.rows_from(fk_name, ids.as_slice())?;
                 Ok(Some(rows))
             })?;
+            // foreign key resolution over a stream stays a stream
+            let result = match result {
+                Value::List(items) if was_stream => Value::Iterator(items),
+                other => other,
+            };
 
             context.current_field = None;
             context.current_file = Some(foreign_spec.file_name.clone());

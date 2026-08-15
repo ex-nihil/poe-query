@@ -28,6 +28,11 @@ Errors are reported on stderr with distinct exit codes: `1` setup, `2` parse
 error, `3` evaluation error. Unknown tables and columns are hard errors with a
 "did you mean" suggestion instead of silently returning `null`.
 
+Streams behave like jq: every filter (field access, `[]`, indexing, slicing,
+`length`, object/array construction, foreign key traversal) applies per
+stream element, `,` concatenates streams, `[expr]` collects, and a top-level
+stream prints one JSON document per value.
+
 Query the first `Id` field in `Mods.dat`
 ```sh 
 $ poe_query query .Mods[1].Id
@@ -40,13 +45,12 @@ $ poe_query query .Mods[0].ModTypeKey.Name
 "Strength"
 ```
 
-Get `Id` from the first rows in `Mods.dat` and `Stats.dat`
+Get `Id` from the first rows in `Mods.dat` and `Stats.dat` (like jq, a
+stream prints one document per value)
 ```sh
 $ poe_query query '.Mods[0].Id, .Stats[0].Id'
-[
-  "Strength1",
-  "level"
-]
+"Strength1"
+"level"
 ```
 
 Construct a JSON object from the wanted fields in the first row of `Mods.dat`
@@ -60,7 +64,7 @@ $ poe_query query '.Mods[0] | { foo: .Id, bar: .GenerationType }'
 
 Transforming data with `transpose`, `map`, `reduce`.
 ```sh
-$ poe_query query '.Mods[0] | [.SpawnWeight_TagsKeys[].Id, .SpawnWeight_Values]'
+$ poe_query query '.Mods[0] | [[.SpawnWeight_TagsKeys[].Id], .SpawnWeight_Values]'
 [
   [
     "ring",
@@ -94,7 +98,7 @@ $ poe_query query '.Mods[0] | [.SpawnWeight_TagsKeys[].Id, .SpawnWeight_Values]'
   ]
 ]
 
-$ poe_query query '.Mods[0] | [.SpawnWeight_TagsKeys[].Id, .SpawnWeight_Values] | transpose | map({([0]): [1]}) | reduce .[] as $item ({}; . + $item)
+$ poe_query query '.Mods[0] | [[.SpawnWeight_TagsKeys[].Id], .SpawnWeight_Values] | transpose | map({([0]): [1]}) | reduce .[] as $item ({}; . + $item)
  {
   "ring": 1000,
   "default": 1000,
