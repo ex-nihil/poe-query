@@ -181,6 +181,7 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                 }
                 Term::BoolLiteral(value) => Some(Value::Bool(*value)),
                 Term::Select(lhs, op, rhs) => {
+                    let was_stream = matches!(context.identity, Some(Value::Iterator(_)));
                     let elems = self.to_iterable(context, cache);
 
                     let result = iterate(elems, |v| {
@@ -208,7 +209,12 @@ impl<'a> DataTraverser<'a> for StaticContext<'a> {
                             None
                         }
                     });
-                    Some(result)
+                    // select preserves the stream-ness of its input: filtering a
+                    // stream yields a stream, filtering an array yields an array
+                    match result {
+                        Value::List(items) if was_stream => Some(Value::Iterator(items)),
+                        other => Some(other),
+                    }
                 }
                 Term::Contains(terms) => {
                     match self.traverse(&mut context.clone(), cache, terms) {
