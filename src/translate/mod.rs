@@ -14,8 +14,8 @@ use crate::error::QueryError;
 #[derive(Debug)]
 pub struct StatDescriptions {
     descriptions: Vec<Description>,
-    /// stat id -> index into descriptions; later definitions override earlier
-    by_stat: HashMap<String, usize>,
+    /// stat id -> every description block the stat appears in
+    by_stat: HashMap<String, Vec<usize>>,
     hidden: std::collections::HashSet<String>,
 }
 
@@ -42,6 +42,16 @@ struct Condition {
     min: Option<i64>,
     max: Option<i64>,
     negated_value: Option<i64>,
+}
+
+impl Condition {
+    fn matches(&self, value: i64) -> bool {
+        if let Some(negated) = self.negated_value {
+            return value != negated;
+        }
+        self.min.map_or(true, |bound| value >= bound)
+            && self.max.map_or(true, |bound| value <= bound)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -161,7 +171,7 @@ impl StatDescriptions {
                 for description in descriptions {
                     let index = self.descriptions.len();
                     for stat in &description.stats {
-                        self.by_stat.insert(stat.clone(), index);
+                        self.by_stat.entry(stat.clone()).or_default().push(index);
                     }
                     self.descriptions.push(description);
                 }
@@ -177,23 +187,40 @@ impl StatDescriptions {
         let mut lines = Vec::new();
         let mut unmatched = Vec::new();
         let mut hidden = Vec::new();
-        let mut rendered: Vec<usize> = Vec::new();
+        let provided: std::collections::HashSet<&str> = stats.iter().map(|s| s.id.as_str()).collect();
+        let mut consumed: std::collections::HashSet<&str> = std::collections::HashSet::new();
 
         for stat in stats {
+            if consumed.contains(stat.id.as_str()) {
+                continue; // already rendered as part of an earlier stat's block
+            }
             if self.hidden.contains(&stat.id) {
                 hidden.push(stat.id.clone());
                 continue;
             }
-            let Some(&index) = self.by_stat.get(&stat.id) else {
+            let Some(candidates) = self.by_stat.get(&stat.id) else {
                 unmatched.push(stat.id.clone());
                 continue;
             };
-            if rendered.contains(&index) {
-                continue; // another stat of the same block already produced the line
-            }
-            rendered.push(index);
+
+            // combined check: of all blocks this stat appears in, prefer the
+            // one that uses the most of the provided stats (so a hybrid pair
+            // beats two single lines), then the tightest fit (fewest empty
+            // slots), then the latest definition in the file
+            let &index = candidates.iter().max_by_key(|&&index| {
+                let block_stats = &self.descriptions[index].stats;
+                let overlap = block_stats.iter().filter(|s| provided.contains(s.as_str())).count() as i64;
+                let missing = block_stats.len() as i64 - overlap;
+                (overlap, -missing, index)
+            }).expect("by_stat entries are never empty");
 
             let description = &self.descriptions[index];
+            for slot in &description.stats {
+                if provided.contains(slot.as_str()) {
+                    consumed.insert(slot.as_str());
+                }
+            }
+
             let values: Vec<(f64, f64)> = description.stats.iter()
                 .map(|slot| {
                     stats.iter()
@@ -227,16 +254,34 @@ impl StatDescriptions {
                 let Some(captures) = match_template(&variant.text, text) else { continue };
 
                 let mut exact = true;
-                let stats = description.stats.iter().enumerate().map(|(i, id)| {
+                let mut recovered: Vec<Option<(f64, f64)>> = Vec::with_capacity(description.stats.len());
+                for i in 0..description.stats.len() {
                     match captures.get(&i) {
                         Some(Capture::Value(min, max)) => {
                             let (min, min_exact) = variant.invert_handlers(i, *min);
                             let (max, max_exact) = variant.invert_handlers(i, *max);
                             exact &= min_exact && max_exact;
-                            let (min, max) = if min <= max { (min, max) } else { (max, min) };
-                            ReverseStat { id: id.clone(), min: Some(min), max: Some(max) }
+                            recovered.push(Some(if min <= max { (min, max) } else { (max, min) }));
                         }
-                        _ => ReverseStat { id: id.clone(), min: None, max: None },
+                        _ => recovered.push(None),
+                    }
+                }
+
+                // the game only renders a variant when its value conditions
+                // hold, so text like "0% increased ..." must not match a
+                // variant gated on 1|#; wildcards have no value to check
+                let conditions_hold = variant.conditions.iter().enumerate().all(|(i, condition)| {
+                    recovered.get(i).copied().flatten()
+                        .map_or(true, |(min, _)| condition.matches(min.round() as i64))
+                });
+                if !conditions_hold {
+                    continue;
+                }
+
+                let stats = description.stats.iter().enumerate().map(|(i, id)| {
+                    match recovered[i] {
+                        Some((min, max)) => ReverseStat { id: id.clone(), min: Some(min), max: Some(max) },
+                        None => ReverseStat { id: id.clone(), min: None, max: None },
                     }
                 }).collect();
 
@@ -272,12 +317,7 @@ impl Description {
 impl Variant {
     fn matches(&self, values: &[(f64, f64)]) -> bool {
         self.conditions.iter().zip(values).all(|(condition, &(min, _))| {
-            let value = min.round() as i64;
-            if let Some(negated) = condition.negated_value {
-                return value != negated;
-            }
-            condition.min.map_or(true, |bound| value >= bound)
-                && condition.max.map_or(true, |bound| value <= bound)
+            condition.matches(min.round() as i64)
         })
     }
 

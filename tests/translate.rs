@@ -47,6 +47,31 @@ description\r
 \t1\r
 \t\t1|# \"Items found have {}% chance for maximum Sockets\"\r
 \r
+description\r
+\t1 combo_stat_a\r
+\t1\r
+\t\t# \"{0} alpha alone\"\r
+\r
+description\r
+\t2 combo_stat_a combo_stat_b\r
+\t1\r
+\t\t# # \"{0} alpha with {1} beta\"\r
+\r
+description\r
+\t1 combo_stat_b\r
+\t1\r
+\t\t# \"{0} beta alone\"\r
+\r
+description\r
+\t1 reworded_stat\r
+\t1\r
+\t\t# \"old wording {0}\"\r
+\r
+description\r
+\t1 reworded_stat\r
+\t1\r
+\t\t# \"new wording {0}\"\r
+\r
 no_description internal_bookkeeping_stat\r
 ";
 
@@ -165,6 +190,25 @@ fn include_directives_resolve_through_loader() {
     assert_eq!(result.lines, vec!["1 included", "2 extra"]);
 }
 
+#[test]
+fn hybrid_pair_prefers_the_combined_block() {
+    // both stats provided: one combined line, no stray singles
+    let result = translate(vec![single("combo_stat_a", 1.0), single("combo_stat_b", 2.0)]);
+    assert_eq!(result.lines, vec!["1 alpha with 2 beta"]);
+
+    // alone, each stat falls back to its own block
+    let result = translate(vec![single("combo_stat_a", 1.0)]);
+    assert_eq!(result.lines, vec!["1 alpha alone"]);
+    let result = translate(vec![single("combo_stat_b", 2.0)]);
+    assert_eq!(result.lines, vec!["2 beta alone"]);
+}
+
+#[test]
+fn later_rewording_of_the_same_stat_wins() {
+    let result = translate(vec![single("reworded_stat", 5.0)]);
+    assert_eq!(result.lines, vec!["new wording 5"]);
+}
+
 fn reverse(text: &str) -> Vec<poe_query_lib::translate::ReverseMatch> {
     StatDescriptions::parse(FIXTURE).unwrap().reverse(text, "English")
 }
@@ -230,6 +274,18 @@ fn reverse_without_a_match_is_empty() {
     assert!(reverse("This text appears on no item").is_empty());
     // partial prefix must not match
     assert!(reverse("+25 to maximum Life and then some").is_empty());
+}
+
+#[test]
+fn reverse_rejects_values_outside_the_variant_conditions() {
+    // the increased wording is gated on 1|#, so the game never prints 0%
+    assert!(reverse("0% increased Attack Speed").is_empty());
+    assert!(reverse("0% reduced Attack Speed").is_empty());
+    assert_eq!(reverse("1% increased Attack Speed").len(), 1);
+    // a range dipping below the gate is equally impossible
+    assert!(reverse("(0-5)% increased Attack Speed").is_empty());
+    // wildcards carry no value, so they always pass the gate
+    assert_eq!(reverse("#% increased Attack Speed").len(), 1);
 }
 
 #[test]

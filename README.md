@@ -138,9 +138,14 @@ intentionally never displays (`no_description`).
 `untranslate` is the inverse: given display text it returns every stat
 combination that can produce it, with values recovered from the numbers
 (handlers are inverted, so "reduced" wording comes back negative). Numbers,
-`(10-20)` ranges, and `#` wildcards are accepted. Ambiguous lines return all
-candidates, and `exact: false` marks values recovered through a rounding
-handler.
+`(10-20)` ranges, and `#` wildcards are accepted. Text matching is literal
+(no fuzzy matching), and recovered values must satisfy the variant's value
+conditions — "0% increased Attack Speed" matches nothing because the game
+only prints that wording for values of 1 and up. Ambiguous lines return all
+candidates. `exact: false` means the display value went through a rounding
+handler, so the recovered number is the nominal inverse rather than the
+uniquely stored value (a "4.5 second Cooldown" recovers 4500ms, but any
+stored value from 4450 to 4549 displays identically).
 
 ```sh
 $ poe_query untranslate "12% increased Attack Speed"
