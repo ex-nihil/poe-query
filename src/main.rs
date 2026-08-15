@@ -17,8 +17,13 @@ use crate::traversal::{StaticContext, QueryProcessor};
 use crate::traversal::value::Value;
 
 mod dat;
+mod error;
 mod query;
 mod traversal;
+
+const EXIT_SETUP: i32 = 1;
+const EXIT_PARSE: i32 = 2;
+const EXIT_EVAL: i32 = 3;
 
 #[derive(clap::Parser)]
 #[command(name = "PoE Query")]
@@ -54,7 +59,7 @@ fn main() {
         Ok(t) => t,
         Err(error) => {
             error!("{}", error);
-            process::exit(-1);
+            process::exit(EXIT_PARSE);
         },
     };
     let (parse_query_ms, now) = (now.elapsed().as_millis(), Instant::now());
@@ -66,7 +71,13 @@ fn main() {
 
     // Transform
     let context = StaticContext::new(&container);
-    let result = StaticContext::process(&context, &terms);
+    let result = match StaticContext::process(&context, &terms) {
+        Ok(value) => value,
+        Err(error) => {
+            error!("{}", error);
+            process::exit(EXIT_EVAL);
+        },
+    };
     let (query_ms, now) = (now.elapsed().as_millis(), Instant::now());
 
     // Output
@@ -85,8 +96,13 @@ fn main() {
 }
 
 fn serialize_and_print(value: &Value) {
-    let serialized = serde_json::to_string_pretty(&value).unwrap();
-    println!("{}", serialized);
+    match serde_json::to_string_pretty(&value) {
+        Ok(serialized) => println!("{}", serialized),
+        Err(error) => {
+            error!("{}", error);
+            process::exit(EXIT_EVAL);
+        }
+    }
 }
 
 fn init_logger(verbosity: u8) {
@@ -120,7 +136,7 @@ fn find_poe_install(path_arg: Option<PathBuf>) -> Box<Path> {
         None => attempt_to_find_installation()
     }.unwrap_or_else(|| {
         error!("Path of Exile not found. Provide a valid path with -p flag.");
-        process::exit(-1);
+        process::exit(EXIT_SETUP);
     }).into_boxed_path()
 }
 

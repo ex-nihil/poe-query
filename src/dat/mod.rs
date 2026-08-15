@@ -6,6 +6,7 @@ use poe_bundle::{BundleReader, BundleReaderRead};
 
 use crate::dat::file::DatFile;
 use crate::dat::specification::{EnumSpec, FileSpec};
+use crate::error::QueryError;
 
 pub mod util;
 pub mod specification;
@@ -44,7 +45,7 @@ impl<'a> DatReader<'a> {
 }
 
 pub trait DatStoreImpl<'a> {
-    fn file_by_filename(&self, filename: &str) -> Option<DatFile>;
+    fn file_by_filename(&self, filename: &str) -> Result<DatFile, QueryError>;
     fn spec(&self, path: &str) -> Option<&FileSpec>;
     fn spec_by_export(&self, export: &str) -> Option<&FileSpec>;
     fn exports(&self) -> HashSet<&str>;
@@ -52,21 +53,18 @@ pub trait DatStoreImpl<'a> {
 }
 
 impl<'a> DatStoreImpl<'a> for DatReader<'a> {
-    fn file_by_filename(&self, filename: &str) -> Option<DatFile> {
+    fn file_by_filename(&self, filename: &str) -> Result<DatFile, QueryError> {
         let path = self.get_filepath(filename);
         let spec = self.spec(filename);
         info!("Unpacking {}", path);
-        // TODO: remove unwrap() in poe_bundle and return an actual error
-        let Ok(bytes) = self.bundle_reader.bytes(&path) else { return None };
+        let bytes = self.bundle_reader.bytes(&path)
+            .map_err(|_| QueryError::MissingDataFile { table: filename.to_string() })?;
 
-        let dat_file = DatFile::from_bytes(path, bytes).ok();
-        match (spec, dat_file) {
-            (Some(file_specification), Some(dat_file)) => {
-                dat_file.valid(file_specification);
-                Some(dat_file)
-            },
-            (_, dat_file) => dat_file
+        let dat_file = DatFile::from_bytes(path, bytes)?;
+        if let Some(file_specification) = spec {
+            dat_file.valid(file_specification);
         }
+        Ok(dat_file)
     }
 
     fn spec(&self, path: &str) -> Option<&FileSpec> {

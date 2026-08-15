@@ -8,5 +8,6 @@ use crate::query::Term;
 use crate::traversal::value::Value;
 
 pub mod dat;
+pub mod error;
 pub mod query;
 pub mod traversal;

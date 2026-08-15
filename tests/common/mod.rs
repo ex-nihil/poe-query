@@ -1,13 +1,10 @@
 use poe_query_lib::{query, query::Term};
+use poe_query_lib::error::QueryError;
 use poe_query_lib::traversal::{QueryProcessor, StaticContext, value::Value};
 
 pub fn process(input: &str) -> Vec<String> {
     println!("Input: {}", input);
-    let terms = query::parse_query(input).unwrap();
-
-    print_terms(&terms, 0);
-
-    let value = StaticContext::default().process(&terms);
+    let value = process_result(input).unwrap();
 
     match value {
         Value::Iterator(items) => {
@@ -17,6 +14,12 @@ pub fn process(input: &str) -> Vec<String> {
         }
         _ => vec![serde_json::to_string(&value).expect("serialized")]
     }
+}
+
+pub fn process_result(input: &str) -> Result<Value, QueryError> {
+    let terms = query::parse_query(input)?;
+    print_terms(&terms, 0);
+    StaticContext::default().process(&terms)
 }
 
 pub fn print_terms(terms: &Vec<Term>, indentation: u8) {

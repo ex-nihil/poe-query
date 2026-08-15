@@ -1,11 +1,11 @@
-use log::*;
-use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
-use std::{fmt, ops};
+use serde::ser::{Error as SerdeError, Serialize, SerializeMap, SerializeSeq, Serializer};
+use std::fmt;
 use std::cmp::Ordering;
 use std::fmt::Formatter;
 use std::ops::Deref;
-use std::process;
 use std::rc::Rc;
+
+use crate::error::QueryError;
 
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -45,34 +45,27 @@ impl fmt::Display for Value {
     }
 }
 
-impl ops::Add<Value> for Value {
-    type Output = Value;
+impl Value {
+    fn key(&self) -> Option<&Value> {
+        match self {
+            Value::KeyValue(key, _) => Some(key),
+            _ => None
+        }
+    }
 
-    fn add(self, rhs: Value) -> Value {
+    pub fn try_add(self, rhs: Value) -> Result<Value, QueryError> {
         use Value::*;
         match (self, rhs) {
-            (Empty, Empty) => Empty,
-            (Str(lhs), Str(rhs)) => Str(format!("{}{}", lhs, rhs)),
-            (U64(lhs), U64(rhs)) => U64(lhs + rhs),
-            (I64(lhs), I64(rhs)) => I64(lhs + rhs),
-            (Byte(lhs), Byte(rhs)) => Byte(lhs + rhs),
-            (List(lhs), List(rhs)) => List([&lhs[..], &rhs[..]].concat()),
-            (Iterator(lhs), Iterator(rhs)) => Iterator([&lhs[..], &rhs[..]].concat()),
+            (Empty, Empty) => Ok(Empty),
+            (Str(lhs), Str(rhs)) => Ok(Str(format!("{}{}", lhs, rhs))),
+            (U64(lhs), U64(rhs)) => Ok(U64(lhs + rhs)),
+            (I64(lhs), I64(rhs)) => Ok(I64(lhs + rhs)),
+            (Byte(lhs), Byte(rhs)) => Ok(Byte(lhs + rhs)),
+            (List(lhs), List(rhs)) => Ok(List([&lhs[..], &rhs[..]].concat())),
+            (Iterator(lhs), Iterator(rhs)) => Ok(Iterator([&lhs[..], &rhs[..]].concat())),
             (Object(lhs), Object(rhs)) => {
-                let lhs_content = match *lhs {
-                    Value::List(list) => list,
-                    Value::Iterator(list) => list,
-                    Value::KeyValue(_, _) => vec![*lhs],
-                    Value::Empty => vec![],
-                    _ => panic!("object contained unknown type"),
-                };
-                let rhs_content = match *rhs {
-                    Value::List(list) => list,
-                    Value::Iterator(list) => list,
-                    Value::KeyValue(_, _) => vec![*rhs],
-                    Value::Empty => vec![],
-                    _ => panic!("object contained unknown type"),
-                };
+                let lhs_content = object_content(*lhs)?;
+                let rhs_content = object_content(*rhs)?;
 
                 // strip out keys that should be overwritten
                 let lhs_content: Vec<Value> = lhs_content.into_iter().filter(|e| {
@@ -84,45 +77,36 @@ impl ops::Add<Value> for Value {
                     }
                 }).collect();
 
-                Value::Object(Box::new(Value::List(
+                Ok(Value::Object(Box::new(Value::List(
                     [&lhs_content[..], &rhs_content[..]].concat(),
-                )))
+                ))))
             }
-            (lhs, rhs) => {
-                error!("Operation not supported: {} + {}", lhs, rhs);
-                process::exit(-1);
-            }
+            (lhs, rhs) => Err(QueryError::type_error("addition", format!("{} + {}", lhs, rhs))),
         }
     }
-}
 
-impl Value {
-    fn key(&self) -> Option<&Value> {
-        match self {
-            Value::KeyValue(key, _) => Some(key),
-            _ => None
-        }
-    }
-}
-
-impl ops::Sub<Value> for Value {
-    type Output = Value;
-
-    fn sub(self, rhs: Value) -> Value {
+    pub fn try_sub(self, rhs: Value) -> Result<Value, QueryError> {
         use Value::*;
         match (self, rhs) {
-            (Empty, Empty) => Empty,
-            (U64(lhs), U64(rhs)) => U64(lhs - rhs),
-            (I64(lhs), I64(rhs)) => I64(lhs - rhs),
-            (Byte(lhs), Byte(rhs)) => Byte(lhs - rhs),
+            (Empty, Empty) => Ok(Empty),
+            (U64(lhs), U64(rhs)) => Ok(U64(lhs - rhs)),
+            (I64(lhs), I64(rhs)) => Ok(I64(lhs - rhs)),
+            (Byte(lhs), Byte(rhs)) => Ok(Byte(lhs - rhs)),
             (List(lhs), List(rhs)) => {
-                List(lhs.into_iter().filter(|e| !rhs.contains(e)).collect())
+                Ok(List(lhs.into_iter().filter(|e| !rhs.contains(e)).collect()))
             },
-            (lhs, rhs) => {
-                error!("Subtraction not supported: {} - {}", lhs, rhs);
-                process::exit(-1);
-            }
+            (lhs, rhs) => Err(QueryError::type_error("subtraction", format!("{} - {}", lhs, rhs))),
         }
+    }
+}
+
+fn object_content(content: Value) -> Result<Vec<Value>, QueryError> {
+    match content {
+        Value::List(list) => Ok(list),
+        Value::Iterator(list) => Ok(list),
+        kv @ Value::KeyValue(_, _) => Ok(vec![kv]),
+        Value::Empty => Ok(vec![]),
+        unexpected => Err(QueryError::internal(format!("object contained unexpected type {}", unexpected))),
     }
 }
 
@@ -142,8 +126,7 @@ impl Serialize for Value {
                             }
                             Value::Empty => {}
                             _ => {
-                                error!("object contained an unexpected value: {:?}", value);
-                                process::exit(-1);
+                                return Err(S::Error::custom(format!("object contained an unexpected value: {:?}", value)));
                             }
                         }
                     }
@@ -156,8 +139,7 @@ impl Serialize for Value {
                 }
                 Value::Empty => serializer.serialize_map(Some(0))?.end(),
                 _ => {
-                    error!("object contained an unexpected value: {:?}", content);
-                    process::exit(-1);
+                    return Err(S::Error::custom(format!("object contained an unexpected value: {:?}", content)));
                 }
             },
             Value::List(list) => {

@@ -1,9 +1,10 @@
 use std::fmt::Debug;
-use std::process;
 
-use log::{debug, error, trace};
+use log::{debug, trace};
 use pest::error::LineColLocation;
 use pest::Parser;
+
+use crate::error::QueryError;
 
 #[derive(Parser)]
 #[grammar = "query/grammar.pest"]
@@ -60,36 +61,37 @@ pub enum Operation {
     Division,
 }
 
-pub fn parse_query(source: &str) -> Result<Vec<Term>, String> {
+pub fn parse_query(source: &str) -> Result<Vec<Term>, QueryError> {
     let pairs = match PluckParser::parse(Rule::program, source) {
         Ok(pairs) => pairs,
         Err(error) => {
-            let parse_error = match error.line_col {
-                LineColLocation::Pos((line, column)) =>
-                    format!("Error parsing grammar at line {}, column {}. {}", line, column, error),
-                LineColLocation::Span((line, column), (line_to, column_to)) =>
-                    format!("Error parsing grammar at line {}, column {} to line {}, column {}. {}", line, column, line_to, column_to, error),
+            let (line, column) = match error.line_col {
+                LineColLocation::Pos((line, column)) => (line, column),
+                LineColLocation::Span((line, column), (_, _)) => (line, column),
             };
-            return Err(parse_error);
+            return Err(QueryError::Parse { line, column, message: error.to_string() });
         }
     };
 
-    let terms = pairs.into_iter()
-        .flat_map(build_ast)
-        .collect::<Vec<_>>();
+    let mut terms = Vec::new();
+    for pair in pairs {
+        terms.append(&mut build_ast(pair)?);
+    }
 
     debug!("Query terms: {:?}", terms);
     Ok(terms)
 }
 
-fn build_ast(pair: pest::iterators::Pair<Rule>) -> Vec<Term> {
+fn build_ast(pair: pest::iterators::Pair<Rule>) -> Result<Vec<Term>, QueryError> {
     trace!("pair: {:?}", pair);
 
     match pair.as_rule() {
         Rule::multiple_terms => {
-            pair.into_inner().into_iter()
-                .flat_map(build_ast)
-                .collect::<Vec<_>>()
+            let mut terms = Vec::new();
+            for inner in pair.into_inner() {
+                terms.append(&mut build_ast(inner)?);
+            }
+            Ok(terms)
         }
         Rule::calculation => {
             let mut left_operand = Vec::new();
@@ -105,24 +107,23 @@ fn build_ast(pair: pest::iterators::Pair<Rule>) -> Vec<Term> {
                             Rule::multiply => Some(Operation::Multiplication),
                             Rule::divide => Some(Operation::Division),
                             rule => {
-                                error!("Unexpected rule '{:?}'. Expected math operation.", rule);
-                                process::exit(-1);
+                                return Err(QueryError::internal(format!("unexpected rule '{:?}', expected math operation", rule)));
                             }
                         };
                         current = &mut right_operand;
                     }
-                    _ => current.append(&mut build_ast(next)),
+                    _ => current.append(&mut build_ast(next)?),
                 }
             }
 
             match (operation, left_operand, right_operand) {
-                (None, lhs, _) => lhs,
+                (None, lhs, _) => Ok(lhs),
                 (Some(op), lhs, rhs) =>
-                    vec![Term::Calculate(lhs, op, rhs)]
+                    Ok(vec![Term::Calculate(lhs, op, rhs)])
             }
         }
-        Rule::zip_to_obj => zip_to_object_terms(),
-        _ => vec![to_term(pair)]
+        Rule::zip_to_obj => Ok(zip_to_object_terms()),
+        _ => Ok(vec![to_term(pair)?])
     }
 }
 
@@ -152,9 +153,14 @@ fn zip_to_object_terms() -> Vec<Term> {
     ]
 }
 
-fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
+fn parse_number<T: std::str::FromStr>(text: &str) -> Result<T, QueryError> {
+    text.parse::<T>()
+        .map_err(|_| QueryError::internal(format!("number literal '{}' out of range", text)))
+}
+
+fn to_term(pair: pest::iterators::Pair<Rule>) -> Result<Term, QueryError> {
     trace!("{:?}", pair.as_rule());
-    match pair.as_rule() {
+    let term = match pair.as_rule() {
         Rule::EOI => Term::NoOperation,
         Rule::pipe => Term::PipeOperator,
         Rule::iterator => Term::Iterator,
@@ -179,15 +185,15 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
             Term::GetVariable(text.to_string())
         }
         Rule::key => {
-            let inner = pair.into_inner();
-            let terms = inner.into_iter()
-                .flat_map(build_ast)
-                .collect::<Vec<_>>();
+            let mut terms = Vec::new();
+            for inner in pair.into_inner() {
+                terms.append(&mut build_ast(inner)?);
+            }
             Term::Key(terms)
         }
         Rule::index => {
             let ident = pair.into_inner().next().unwrap().as_str();
-            let index = ident.parse::<i64>().unwrap();
+            let index: i64 = parse_number(ident)?;
             if index < 0 {
                 Term::ByIndexReverse(-index as usize)
             } else {
@@ -195,34 +201,32 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
             }
         }
         Rule::map => {
-            let inner = pair.into_inner();
-            let terms = inner.into_iter()
-                .flat_map(build_ast)
-                .collect::<Vec<_>>();
+            let mut terms = Vec::new();
+            for inner in pair.into_inner() {
+                terms.append(&mut build_ast(inner)?);
+            }
             Term::Map(terms)
         }
         Rule::signed_number => {
             let mut inner = pair.into_inner();
             let Some(next) = inner.next() else {
-                error!("Parsing failed Rule::signed_number. This is a bug in the language spec.");
-                process::exit(-1);
+                return Err(QueryError::internal("parsing failed on signed_number, this is a bug in the language spec"));
             };
 
             match next.as_rule() {
                 Rule::minus => {
-                    let value_string = inner.next().unwrap().as_str();
-                    let value = value_string.parse::<i64>().unwrap();
+                    let value: i64 = parse_number(inner.next().unwrap().as_str())?;
                     Term::SignedNumber(-value)
                 }
                 _ => {
-                    let value = next.as_str().parse::<i64>().unwrap();
+                    let value: i64 = parse_number(next.as_str())?;
                     Term::SignedNumber(value)
                 }
             }
         }
         Rule::unsigned_number => {
             let next = pair.into_inner().next().unwrap();
-            let value = next.as_str().parse::<u64>().unwrap();
+            let value: u64 = parse_number(next.as_str())?;
             Term::UnsignedNumber(value)
         }
         Rule::select => {
@@ -238,7 +242,7 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
                             Rule::TRUE => Term::BoolLiteral(true),
                             _ => Term::BoolLiteral(false),
                         };
-                        return Term::Select(vec![bool], None, vec![]);
+                        return Ok(Term::Select(vec![bool], None, vec![]));
                     }
                     Rule::compare => {
                         comparison = match next.into_inner().next().unwrap().as_rule() {
@@ -249,20 +253,19 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
                             Rule::less_than_eq => Some(Compare::LessThanEq),
                             Rule::greater_than_eq => Some(Compare::GreaterThanEq),
                             rule => {
-                                error!("Unexpected rule '{:?}'. Expected comparison operation.", rule);
-                                process::exit(-1);
+                                return Err(QueryError::internal(format!("unexpected rule '{:?}', expected comparison operation", rule)));
                             }
                         };
                         current = &mut rhs;
                     }
-                    _ => current.push(to_term(next)),
+                    _ => current.push(to_term(next)?),
                 }
             }
             Term::Select(lhs, comparison, rhs)
         }
         Rule::contains => {
             let inner = pair.into_inner();
-            let inner_terms: Vec<_> = inner.map(to_term).collect();
+            let inner_terms = inner.map(to_term).collect::<Result<Vec<_>, _>>()?;
             Term::Contains(inner_terms)
         }
         Rule::slice => {
@@ -271,19 +274,15 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
             let mut to = i64::MAX;
             if let Some(first) = inner.next() {
                 match first.as_rule() {
-                    Rule::slice_from => {
-                        from = first.into_inner().as_str().parse::<i64>().unwrap()
-                    }
-                    Rule::slice_to => to = first.into_inner().as_str().parse::<i64>().unwrap(),
+                    Rule::slice_from => from = parse_number(first.into_inner().as_str())?,
+                    Rule::slice_to => to = parse_number(first.into_inner().as_str())?,
                     _ => {}
                 }
             }
             if let Some(first) = inner.next() {
                 match first.as_rule() {
-                    Rule::slice_from => {
-                        from = first.into_inner().as_str().parse::<i64>().unwrap()
-                    }
-                    Rule::slice_to => to = first.into_inner().as_str().parse::<i64>().unwrap(),
+                    Rule::slice_from => from = parse_number(first.into_inner().as_str())?,
+                    Rule::slice_to => to = parse_number(first.into_inner().as_str())?,
                     _ => {}
                 }
             }
@@ -293,7 +292,7 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
             let content = pair.into_inner();
             let mut items = Vec::new();
             for next in content {
-                items.push(to_term(next));
+                items.push(to_term(next)?);
             }
             Term::ArrayConstruction(items)
         }
@@ -302,19 +301,20 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
             let mut object_terms = Vec::new();
             for pair in inner {
                 match pair.as_rule() {
-                    Rule::comma => object_terms.push(to_term(pair)),
-                    Rule::kv_by_field => object_terms.push(to_term(pair)),
+                    Rule::comma => object_terms.push(to_term(pair)?),
+                    Rule::kv_by_field => object_terms.push(to_term(pair)?),
                     Rule::key_value => {
-                        let content = pair.into_inner();
-                        let terms = content.into_iter()
-                            .flat_map(build_ast)
-                            .collect::<Vec<_>>();
-                        let key = terms.first().unwrap();
+                        let mut terms = Vec::new();
+                        for inner in pair.into_inner() {
+                            terms.append(&mut build_ast(inner)?);
+                        }
+                        let Some(key) = terms.first() else {
+                            return Err(QueryError::internal("object construction key/value pair without a key"));
+                        };
                         object_terms.push(Term::KeyValue(Box::new(key.clone()), terms[1..].to_vec()));
                     }
                     rule => {
-                        error!("Unexpected rule '{:?}' during object construction ", rule);
-                        process::exit(-1);
+                        return Err(QueryError::internal(format!("unexpected rule '{:?}' during object construction", rule)));
                     }
                 }
             }
@@ -332,19 +332,18 @@ fn to_term(pair: pest::iterators::Pair<Rule>) -> Term {
                     Rule::reduce_init_value => {
                         current = &mut inner_terms;
                         let Some(inner_next) = next.into_inner().next() else {
-                            error!("Expected a value from iterator, but got None");
-                            process::exit(-1);
+                            return Err(QueryError::internal("reduce is missing its initial value"));
                         };
-                        initial.append(&mut build_ast(inner_next));
+                        initial.append(&mut build_ast(inner_next)?);
                     }
-                   _ => current.append(&mut build_ast(next))
+                   _ => current.append(&mut build_ast(next)?)
                 }
             }
             Term::Reduce(outer_terms, initial, inner_terms)
         }
         unexpected_rule => {
-            error!("Rule from language spec not implemented: {:?}", unexpected_rule);
-            process::exit(-1);
+            return Err(QueryError::internal(format!("rule from language spec not implemented: {:?}", unexpected_rule)));
         }
-    }
+    };
+    Ok(term)
 }
